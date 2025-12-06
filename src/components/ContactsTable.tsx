@@ -304,10 +304,24 @@ export const ContactsTable = ({
                         className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                       >
                         <Phone className="h-3 w-3" />
-                        {contact.mobileNumber}
+                        <span className="truncate max-w-[100px]">{contact.mobileNumber}</span>
                       </a>
                     )}
-                    {!contact.email && !contact.mobileNumber && (
+                    {contact.companyPhone && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={`tel:${contact.companyPhone}`}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <Building2 className="h-3 w-3" />
+                            <span className="truncate max-w-[100px]">{contact.companyPhone}</span>
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>Telefone da empresa: {contact.companyPhone}</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {!contact.email && !contact.mobileNumber && !contact.companyPhone && (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </div>
