@@ -162,6 +162,11 @@ serve(async (req) => {
 
     const items: ApifyDatasetItem[] = await datasetResponse.json();
     console.log(`Fetched ${items.length} items from dataset`);
+    
+    // Log the first item to see the actual structure
+    if (items.length > 0) {
+      console.log('Sample item structure:', JSON.stringify(items[0]));
+    }
 
     // Transform to our format
     const contacts = items.map((item, index) => ({
