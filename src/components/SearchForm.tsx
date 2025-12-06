@@ -386,16 +386,16 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               <div className="space-y-2">
                 <Label>Receita Mínima</Label>
                 <Select
-                  value={filters.minRevenue}
+                  value={filters.minRevenue || "none"}
                   onValueChange={(value) =>
-                    setFilters((prev) => ({ ...prev, minRevenue: value }))
+                    setFilters((prev) => ({ ...prev, minRevenue: value === "none" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sem mínimo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Sem mínimo</SelectItem>
+                    <SelectItem value="none">Sem mínimo</SelectItem>
                     {REVENUE_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
@@ -407,16 +407,16 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               <div className="space-y-2">
                 <Label>Receita Máxima</Label>
                 <Select
-                  value={filters.maxRevenue}
+                  value={filters.maxRevenue || "none"}
                   onValueChange={(value) =>
-                    setFilters((prev) => ({ ...prev, maxRevenue: value }))
+                    setFilters((prev) => ({ ...prev, maxRevenue: value === "none" ? "" : value }))
                   }
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Sem máximo" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">Sem máximo</SelectItem>
+                    <SelectItem value="none">Sem máximo</SelectItem>
                     {REVENUE_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
                         {option.label}
