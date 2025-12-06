@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { Search, Filter, Loader2, X, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +30,97 @@ interface SearchFormProps {
   onSearch: (filters: SearchFilters) => void;
   isLoading: boolean;
 }
+
+interface TagInputProps {
+  label: string;
+  placeholder: string;
+  value: string;
+  tags: string[];
+  onValueChange: (value: string) => void;
+  onAddTag: () => void;
+  onRemoveTag: (tag: string) => void;
+}
+
+const TagInput = ({
+  label,
+  placeholder,
+  value,
+  tags,
+  onValueChange,
+  onAddTag,
+  onRemoveTag,
+}: TagInputProps) => (
+  <div className="space-y-2">
+    <Label>{label}</Label>
+    <div className="flex gap-2">
+      <Input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onValueChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onAddTag();
+          }
+        }}
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        onClick={onAddTag}
+      >
+        <Plus className="h-4 w-4" />
+      </Button>
+    </div>
+    {tags.length > 0 && (
+      <div className="flex flex-wrap gap-1 mt-2">
+        {tags.map((item) => (
+          <Badge key={item} variant="secondary" className="gap-1">
+            {item}
+            <X
+              className="h-3 w-3 cursor-pointer"
+              onClick={() => onRemoveTag(item)}
+            />
+          </Badge>
+        ))}
+      </div>
+    )}
+  </div>
+);
+
+interface MultiSelectChipsProps {
+  label: string;
+  options: readonly string[];
+  selected: string[];
+  onToggle: (option: string) => void;
+}
+
+const MultiSelectChips = ({
+  label,
+  options,
+  selected,
+  onToggle,
+}: MultiSelectChipsProps) => (
+  <div className="space-y-2">
+    <Label>{label}</Label>
+    <div className="flex flex-wrap gap-1">
+      {options.map((option) => {
+        const isSelected = selected.includes(option);
+        return (
+          <Badge
+            key={option}
+            variant={isSelected ? "default" : "outline"}
+            className="cursor-pointer transition-colors"
+            onClick={() => onToggle(option)}
+          >
+            {option}
+          </Badge>
+        );
+      })}
+    </div>
+  </div>
+);
 
 export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -75,125 +166,47 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
     onSearch(filters);
   };
 
-  const addToArrayFilter = (key: keyof SearchFilters, inputKey: keyof typeof inputValues) => {
+  const addToArrayFilter = useCallback((key: keyof SearchFilters, inputKey: keyof typeof inputValues) => {
     const value = inputValues[inputKey].trim();
-    if (value && Array.isArray(filters[key])) {
-      const currentArray = filters[key] as string[];
-      if (!currentArray.includes(value)) {
-        setFilters((prev) => ({
-          ...prev,
-          [key]: [...currentArray, value],
-        }));
-      }
+    if (value) {
+      setFilters((prev) => {
+        const currentArray = prev[key] as string[] | undefined;
+        if (Array.isArray(currentArray) && !currentArray.includes(value)) {
+          return { ...prev, [key]: [...currentArray, value] };
+        }
+        return prev;
+      });
       setInputValues((prev) => ({ ...prev, [inputKey]: "" }));
     }
-  };
+  }, [inputValues]);
 
-  const removeFromArrayFilter = (key: keyof SearchFilters, value: string) => {
-    if (Array.isArray(filters[key])) {
-      setFilters((prev) => ({
-        ...prev,
-        [key]: (prev[key] as string[]).filter((item) => item !== value),
-      }));
-    }
-  };
-
-  const toggleArrayFilter = (key: keyof SearchFilters, value: string) => {
-    if (Array.isArray(filters[key])) {
-      const currentArray = filters[key] as string[];
-      if (currentArray.includes(value)) {
-        removeFromArrayFilter(key, value);
-      } else {
-        setFilters((prev) => ({
-          ...prev,
-          [key]: [...currentArray, value],
-        }));
+  const removeFromArrayFilter = useCallback((key: keyof SearchFilters, value: string) => {
+    setFilters((prev) => {
+      const currentArray = prev[key] as string[] | undefined;
+      if (Array.isArray(currentArray)) {
+        return { ...prev, [key]: currentArray.filter((item) => item !== value) };
       }
-    }
-  };
+      return prev;
+    });
+  }, []);
 
-  const TagInput = ({
-    label,
-    placeholder,
-    filterKey,
-    inputKey,
-  }: {
-    label: string;
-    placeholder: string;
-    filterKey: keyof SearchFilters;
-    inputKey: keyof typeof inputValues;
-  }) => (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex gap-2">
-        <Input
-          placeholder={placeholder}
-          value={inputValues[inputKey]}
-          onChange={(e) =>
-            setInputValues((prev) => ({ ...prev, [inputKey]: e.target.value }))
-          }
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              addToArrayFilter(filterKey, inputKey);
-            }
-          }}
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={() => addToArrayFilter(filterKey, inputKey)}
-        >
-          <Plus className="h-4 w-4" />
-        </Button>
-      </div>
-      {Array.isArray(filters[filterKey]) && (filters[filterKey] as string[]).length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-2">
-          {(filters[filterKey] as string[]).map((item) => (
-            <Badge key={item} variant="secondary" className="gap-1">
-              {item}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => removeFromArrayFilter(filterKey, item)}
-              />
-            </Badge>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+  const toggleArrayFilter = useCallback((key: keyof SearchFilters, value: string) => {
+    setFilters((prev) => {
+      const currentArray = prev[key] as string[] | undefined;
+      if (Array.isArray(currentArray)) {
+        if (currentArray.includes(value)) {
+          return { ...prev, [key]: currentArray.filter((item) => item !== value) };
+        } else {
+          return { ...prev, [key]: [...currentArray, value] };
+        }
+      }
+      return prev;
+    });
+  }, []);
 
-  const MultiSelectChips = ({
-    label,
-    options,
-    filterKey,
-  }: {
-    label: string;
-    options: readonly string[];
-    filterKey: keyof SearchFilters;
-  }) => (
-    <div className="space-y-2">
-      <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1">
-        {options.map((option) => {
-          const isSelected =
-            Array.isArray(filters[filterKey]) &&
-            (filters[filterKey] as string[]).includes(option);
-          return (
-            <Badge
-              key={option}
-              variant={isSelected ? "default" : "outline"}
-              className="cursor-pointer transition-colors"
-              onClick={() => toggleArrayFilter(filterKey, option)}
-            >
-              {option}
-            </Badge>
-          );
-        })}
-      </div>
-    </div>
-  );
+  const updateInputValue = useCallback((key: keyof typeof inputValues, value: string) => {
+    setInputValues((prev) => ({ ...prev, [key]: value }));
+  }, []);
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -203,9 +216,7 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
           <Input
             placeholder="Adicionar cargo (ex: Software Engineer, Marketing Manager)"
             value={inputValues.jobTitle}
-            onChange={(e) =>
-              setInputValues((prev) => ({ ...prev, jobTitle: e.target.value }))
-            }
+            onChange={(e) => updateInputValue("jobTitle", e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -272,19 +283,24 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               <MultiSelectChips
                 label="Nível de Senioridade"
                 options={SENIORITY_LEVELS}
-                filterKey="seniorityLevel"
+                selected={filters.seniorityLevel || []}
+                onToggle={(option) => toggleArrayFilter("seniorityLevel", option)}
               />
               <MultiSelectChips
                 label="Área Funcional"
                 options={FUNCTIONAL_LEVELS}
-                filterKey="functionalLevel"
+                selected={filters.functionalLevel || []}
+                onToggle={(option) => toggleArrayFilter("functionalLevel", option)}
               />
             </div>
             <TagInput
               label="Excluir Cargos"
               placeholder="Ex: Intern, Assistant"
-              filterKey="contactNotJobTitle"
-              inputKey="notJobTitle"
+              value={inputValues.notJobTitle}
+              tags={filters.contactNotJobTitle || []}
+              onValueChange={(value) => updateInputValue("notJobTitle", value)}
+              onAddTag={() => addToArrayFilter("contactNotJobTitle", "notJobTitle")}
+              onRemoveTag={(tag) => removeFromArrayFilter("contactNotJobTitle", tag)}
             />
           </div>
 
@@ -295,28 +311,40 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               <TagInput
                 label="Região/País/Estado"
                 placeholder="Ex: United States, Brazil, EMEA"
-                filterKey="contactLocation"
-                inputKey="location"
+                value={inputValues.location}
+                tags={filters.contactLocation || []}
+                onValueChange={(value) => updateInputValue("location", value)}
+                onAddTag={() => addToArrayFilter("contactLocation", "location")}
+                onRemoveTag={(tag) => removeFromArrayFilter("contactLocation", tag)}
               />
               <TagInput
                 label="Cidade"
                 placeholder="Ex: São Paulo, New York"
-                filterKey="contactCity"
-                inputKey="city"
+                value={inputValues.city}
+                tags={filters.contactCity || []}
+                onValueChange={(value) => updateInputValue("city", value)}
+                onAddTag={() => addToArrayFilter("contactCity", "city")}
+                onRemoveTag={(tag) => removeFromArrayFilter("contactCity", tag)}
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TagInput
                 label="Excluir Região/País/Estado"
                 placeholder="Ex: China, Russia"
-                filterKey="contactNotLocation"
-                inputKey="notLocation"
+                value={inputValues.notLocation}
+                tags={filters.contactNotLocation || []}
+                onValueChange={(value) => updateInputValue("notLocation", value)}
+                onAddTag={() => addToArrayFilter("contactNotLocation", "notLocation")}
+                onRemoveTag={(tag) => removeFromArrayFilter("contactNotLocation", tag)}
               />
               <TagInput
                 label="Excluir Cidade"
                 placeholder="Ex: Remote cities"
-                filterKey="contactNotCity"
-                inputKey="notCity"
+                value={inputValues.notCity}
+                tags={filters.contactNotCity || []}
+                onValueChange={(value) => updateInputValue("notCity", value)}
+                onAddTag={() => addToArrayFilter("contactNotCity", "notCity")}
+                onRemoveTag={(tag) => removeFromArrayFilter("contactNotCity", tag)}
               />
             </div>
           </div>
@@ -348,34 +376,47 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
               <TagInput
                 label="Domínio da Empresa"
                 placeholder="Ex: google.com, microsoft.com"
-                filterKey="companyDomain"
-                inputKey="companyDomain"
+                value={inputValues.companyDomain}
+                tags={filters.companyDomain || []}
+                onValueChange={(value) => updateInputValue("companyDomain", value)}
+                onAddTag={() => addToArrayFilter("companyDomain", "companyDomain")}
+                onRemoveTag={(tag) => removeFromArrayFilter("companyDomain", tag)}
               />
               <TagInput
                 label="Indústria"
                 placeholder="Ex: Technology, SaaS"
-                filterKey="companyIndustry"
-                inputKey="industry"
+                value={inputValues.industry}
+                tags={filters.companyIndustry || []}
+                onValueChange={(value) => updateInputValue("industry", value)}
+                onAddTag={() => addToArrayFilter("companyIndustry", "industry")}
+                onRemoveTag={(tag) => removeFromArrayFilter("companyIndustry", tag)}
               />
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <TagInput
                 label="Palavras-chave"
                 placeholder="Ex: AI, Machine Learning"
-                filterKey="companyKeywords"
-                inputKey="keywords"
+                value={inputValues.keywords}
+                tags={filters.companyKeywords || []}
+                onValueChange={(value) => updateInputValue("keywords", value)}
+                onAddTag={() => addToArrayFilter("companyKeywords", "keywords")}
+                onRemoveTag={(tag) => removeFromArrayFilter("companyKeywords", tag)}
               />
               <TagInput
                 label="Excluir Indústrias"
                 placeholder="Ex: Government, Non-profit"
-                filterKey="companyNotIndustry"
-                inputKey="notIndustry"
+                value={inputValues.notIndustry}
+                tags={filters.companyNotIndustry || []}
+                onValueChange={(value) => updateInputValue("notIndustry", value)}
+                onAddTag={() => addToArrayFilter("companyNotIndustry", "notIndustry")}
+                onRemoveTag={(tag) => removeFromArrayFilter("companyNotIndustry", tag)}
               />
             </div>
             <MultiSelectChips
               label="Tamanho da Empresa"
               options={COMPANY_SIZES}
-              filterKey="size"
+              selected={filters.size || []}
+              onToggle={(option) => toggleArrayFilter("size", option)}
             />
           </div>
 
@@ -429,7 +470,8 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
             <MultiSelectChips
               label="Estágio de Investimento"
               options={FUNDING_OPTIONS}
-              filterKey="funding"
+              selected={filters.funding || []}
+              onToggle={(option) => toggleArrayFilter("funding", option)}
             />
           </div>
 
