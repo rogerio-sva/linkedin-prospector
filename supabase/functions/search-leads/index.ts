@@ -106,8 +106,8 @@ serve(async (req) => {
 
     console.log('Apify input:', JSON.stringify(apifyInput));
 
-    // Start actor run
-    const actorId = 'code_crafter/leads-finder';
+    // Start actor run using the unique actor ID
+    const actorId = 'IoSHqwTR9YGhzccez';
     const runUrl = `https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_API_TOKEN}`;
     
     console.log('Starting Apify actor run...');
