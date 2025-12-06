@@ -113,8 +113,7 @@ export const FUNCTIONAL_LEVELS = [
 ] as const;
 
 export const COMPANY_SIZES = [
-  '0-1',
-  '2-10',
+  '1-10',
   '11-20',
   '21-50',
   '51-100',
@@ -123,7 +122,10 @@ export const COMPANY_SIZES = [
   '501-1000',
   '1001-2000',
   '2001-5000',
-  '10000+',
+  '5001-10000',
+  '10001-20000',
+  '20001-50000',
+  '50000+',
 ] as const;
 
 export const REVENUE_OPTIONS = [
