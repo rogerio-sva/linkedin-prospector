@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Linkedin, Settings, RefreshCw, Download } from "lucide-react";
+import { Linkedin, Settings, RefreshCw, Download, FolderPlus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SearchForm } from "@/components/SearchForm";
@@ -9,6 +9,10 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { StatsCards } from "@/components/StatsCards";
 import { SearchProgress } from "@/components/SearchProgress";
 import { ContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
+import { BasesList, Base } from "@/components/BasesList";
+import { CreateBaseDialog } from "@/components/CreateBaseDialog";
+import { AddToBaseDialog } from "@/components/AddToBaseDialog";
+import { useBases } from "@/hooks/useBases";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -33,6 +37,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 
 interface ActiveSearch {
   runId: string;
@@ -64,6 +69,12 @@ const Index = () => {
   const [contactFilters, setContactFilters] = useState<ContactFiltersState>(initialContactFilters);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [deleteType, setDeleteType] = useState<"selected" | "filtered">("selected");
+  
+  // Bases state
+  const { bases, createBase, deleteBase, addContactsToBase, loadBaseContacts } = useBases();
+  const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
+  const [addToBaseDialogOpen, setAddToBaseDialogOpen] = useState(false);
 
   // Filtered contacts
   const filteredContacts = useMemo(
@@ -98,6 +109,9 @@ const Index = () => {
         fetchCount: data.fetchCount,
         filters,
       });
+
+      // Clear base selection when doing a new search
+      setSelectedBaseId(null);
 
       toast.success("Busca iniciada! Acompanhe o progresso abaixo.");
     } catch (error) {
@@ -179,6 +193,7 @@ const Index = () => {
       setContacts(fetchedContacts);
       setSelectedContacts([]);
       setContactFilters(initialContactFilters);
+      setSelectedBaseId(null);
 
       const newSearch: SearchQuery = {
         id: `search-${Date.now()}`,
@@ -207,7 +222,50 @@ const Index = () => {
     setContacts(search.contacts);
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
+    setSelectedBaseId(null);
     toast.success(`Busca "${search.query}" carregada`);
+  };
+
+  const handleSelectBase = async (base: Base) => {
+    setSelectedBaseId(base.id);
+    const baseContacts = await loadBaseContacts(base.id);
+    setContacts(baseContacts);
+    setSelectedContacts([]);
+    setContactFilters(initialContactFilters);
+    toast.success(`Base "${base.name}" carregada com ${baseContacts.length} contatos`);
+  };
+
+  const handleCreateBase = async (name: string, description: string) => {
+    await createBase(name, description);
+  };
+
+  const handleDeleteBase = async (baseId: string) => {
+    await deleteBase(baseId);
+    if (selectedBaseId === baseId) {
+      setSelectedBaseId(null);
+      setContacts([]);
+    }
+  };
+
+  const handleAddToExistingBase = async (baseId: string) => {
+    const contactsToAdd = selectedContacts.length > 0
+      ? contacts.filter((c) => selectedContacts.includes(c.id))
+      : filteredContacts;
+    
+    return await addContactsToBase(baseId, contactsToAdd);
+  };
+
+  const handleCreateAndAdd = async (name: string) => {
+    const newBase = await createBase(name, "");
+    if (!newBase) {
+      return { added: 0, duplicates: 0 };
+    }
+    
+    const contactsToAdd = selectedContacts.length > 0
+      ? contacts.filter((c) => selectedContacts.includes(c.id))
+      : filteredContacts;
+    
+    return await addContactsToBase(newBase.id, contactsToAdd);
   };
 
   const handleRefresh = () => {
@@ -215,6 +273,7 @@ const Index = () => {
     setSelectedContacts([]);
     setActiveSearch(null);
     setContactFilters(initialContactFilters);
+    setSelectedBaseId(null);
     toast.success("Dados limpos");
   };
 
@@ -247,6 +306,10 @@ const Index = () => {
   const totalEmailsAvailable = contacts.filter((c) => c.email).length;
   const totalPhonesAvailable = contacts.filter((c) => c.mobileNumber).length;
 
+  const contactsToAddCount = selectedContacts.length > 0 
+    ? selectedContacts.length 
+    : filteredContacts.length;
+
   return (
     <div className="min-h-screen bg-background">
       {/* Delete Confirmation Dialog */}
@@ -269,6 +332,23 @@ const Index = () => {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Create Base Dialog */}
+      <CreateBaseDialog
+        open={createBaseDialogOpen}
+        onOpenChange={setCreateBaseDialogOpen}
+        onCreateBase={handleCreateBase}
+      />
+
+      {/* Add to Base Dialog */}
+      <AddToBaseDialog
+        open={addToBaseDialogOpen}
+        onOpenChange={setAddToBaseDialogOpen}
+        bases={bases}
+        contactCount={contactsToAddCount}
+        onAddToExistingBase={handleAddToExistingBase}
+        onCreateAndAdd={handleCreateAndAdd}
+      />
 
       {/* Header */}
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
@@ -357,8 +437,18 @@ const Index = () => {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* Sidebar - Search History */}
-          <div className="lg:col-span-1">
+          {/* Sidebar - Bases and Search History */}
+          <div className="lg:col-span-1 space-y-6">
+            {/* Bases List */}
+            <BasesList
+              bases={bases}
+              selectedBaseId={selectedBaseId}
+              onSelectBase={handleSelectBase}
+              onCreateBase={() => setCreateBaseDialogOpen(true)}
+              onDeleteBase={handleDeleteBase}
+            />
+
+            {/* Search History */}
             <Card className="p-4 shadow-card">
               <h2 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-primary"></span>
@@ -393,9 +483,16 @@ const Index = () => {
             <Card className="p-6 shadow-card">
               <div className="flex items-center justify-between mb-4">
                 <div>
-                  <h2 className="text-lg font-semibold text-foreground">
-                    Contatos
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold text-foreground">
+                      Contatos
+                    </h2>
+                    {selectedBaseId && (
+                      <Badge variant="outline" className="text-xs">
+                        Base selecionada
+                      </Badge>
+                    )}
+                  </div>
                   <p className="text-sm text-muted-foreground">
                     {filteredContacts.length === contacts.length
                       ? `${contacts.length} resultado${contacts.length !== 1 ? "s" : ""}`
@@ -409,10 +506,27 @@ const Index = () => {
                     )}
                   </p>
                 </div>
-                <ExportMenu
-                  contacts={filteredContacts}
-                  selectedContacts={selectedContacts}
-                />
+                <div className="flex items-center gap-2">
+                  {contacts.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setAddToBaseDialogOpen(true)}
+                    >
+                      <FolderPlus className="h-4 w-4 mr-2" />
+                      Salvar em Base
+                      {selectedContacts.length > 0 && (
+                        <Badge variant="secondary" className="ml-2">
+                          {selectedContacts.length}
+                        </Badge>
+                      )}
+                    </Button>
+                  )}
+                  <ExportMenu
+                    contacts={filteredContacts}
+                    selectedContacts={selectedContacts}
+                  />
+                </div>
               </div>
 
               {/* Contact Filters */}
