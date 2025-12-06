@@ -1,19 +1,19 @@
-import { Users, Search, Mail, Building2 } from "lucide-react";
+import { Users, Search, Mail, Phone } from "lucide-react";
 import { Card } from "@/components/ui/card";
-import { LinkedInContact, SearchQuery } from "@/types/contact";
 
 interface StatsCardsProps {
-  contacts: LinkedInContact[];
-  searches: SearchQuery[];
+  totalContacts: number;
+  emailsAvailable: number;
+  phonesAvailable: number;
+  searchesCount: number;
 }
 
-export const StatsCards = ({ contacts, searches }: StatsCardsProps) => {
-  const totalContacts = contacts.length;
-  const totalSearches = searches.length;
-  const contactsWithEmail = contacts.filter((c) => c.email).length;
-  const uniqueCompanies = new Set(contacts.map((c) => c.company).filter(Boolean))
-    .size;
-
+export const StatsCards = ({
+  totalContacts,
+  emailsAvailable,
+  phonesAvailable,
+  searchesCount,
+}: StatsCardsProps) => {
   const stats = [
     {
       label: "Total de Contatos",
@@ -24,24 +24,24 @@ export const StatsCards = ({ contacts, searches }: StatsCardsProps) => {
     },
     {
       label: "Buscas Realizadas",
-      value: totalSearches,
+      value: searchesCount,
       icon: Search,
       color: "text-accent",
       bgColor: "bg-accent/10",
     },
     {
       label: "Com Email",
-      value: contactsWithEmail,
+      value: emailsAvailable,
       icon: Mail,
-      color: "text-success",
-      bgColor: "bg-success/10",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
     },
     {
-      label: "Empresas",
-      value: uniqueCompanies,
-      icon: Building2,
-      color: "text-warning",
-      bgColor: "bg-warning/10",
+      label: "Com Telefone",
+      value: phonesAvailable,
+      icon: Phone,
+      color: "text-orange-500",
+      bgColor: "bg-orange-500/10",
     },
   ];
 
