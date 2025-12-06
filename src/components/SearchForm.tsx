@@ -497,6 +497,9 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
                     <SelectItem value="1000">1.000 contatos</SelectItem>
                     <SelectItem value="2500">2.500 contatos</SelectItem>
                     <SelectItem value="5000">5.000 contatos</SelectItem>
+                    <SelectItem value="10000">10.000 contatos</SelectItem>
+                    <SelectItem value="25000">25.000 contatos</SelectItem>
+                    <SelectItem value="50000">50.000 contatos</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
