@@ -56,29 +56,52 @@ serve(async (req) => {
       throw new Error('APIFY_API_TOKEN is not configured');
     }
 
-    const { datasetId, runId } = await req.json();
+    const { datasetId, runId, checkStatusOnly } = await req.json();
     
-    // If runId provided, check status first
+    // Check run status
     if (runId) {
       const statusUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_TOKEN}`;
       const statusResponse = await fetch(statusUrl);
       const statusData = await statusResponse.json();
       
-      console.log(`Run ${runId} status: ${statusData.data.status}`);
+      const runStatus = statusData.data.status;
+      const stats = statusData.data.stats || {};
       
-      if (statusData.data.status === 'RUNNING') {
+      console.log(`Run ${runId} status: ${runStatus}`);
+      
+      // If only checking status, return early
+      if (checkStatusOnly) {
         return new Response(JSON.stringify({ 
-          status: 'RUNNING',
-          message: 'A busca ainda está em andamento. Tente novamente em alguns minutos.'
+          status: runStatus,
+          stats: {
+            inputRecordCount: stats.inputRecordCount || 0,
+            outputRecordCount: stats.outputRecordCount || 0,
+            durationMs: stats.runTimeSecs ? stats.runTimeSecs * 1000 : 0,
+          }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
       
-      if (statusData.data.status !== 'SUCCEEDED') {
+      if (runStatus === 'RUNNING' || runStatus === 'READY') {
         return new Response(JSON.stringify({ 
-          status: statusData.data.status,
-          message: `A busca terminou com status: ${statusData.data.status}`
+          status: runStatus,
+          message: 'A busca ainda está em andamento.',
+          stats: {
+            inputRecordCount: stats.inputRecordCount || 0,
+            outputRecordCount: stats.outputRecordCount || 0,
+            durationMs: stats.runTimeSecs ? stats.runTimeSecs * 1000 : 0,
+          }
+        }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+      
+      if (runStatus !== 'SUCCEEDED') {
+        return new Response(JSON.stringify({ 
+          status: runStatus,
+          message: `A busca terminou com status: ${runStatus}`,
+          error: runStatus === 'FAILED' || runStatus === 'ABORTED' ? 'Busca falhou ou foi abortada' : undefined
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });

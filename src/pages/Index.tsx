@@ -7,6 +7,7 @@ import { ContactsTable } from "@/components/ContactsTable";
 import { SearchHistory } from "@/components/SearchHistory";
 import { ExportMenu } from "@/components/ExportMenu";
 import { StatsCards } from "@/components/StatsCards";
+import { SearchProgress } from "@/components/SearchProgress";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -22,6 +23,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
+interface ActiveSearch {
+  runId: string;
+  datasetId: string;
+  fetchCount: number;
+  filters: SearchFilters;
+}
+
 const Index = () => {
   const [contacts, setContacts] = useState<LinkedInContact[]>([]);
   const [searchHistory, setSearchHistory] = useState<SearchQuery[]>(mockSearchHistory);
@@ -31,6 +39,7 @@ const Index = () => {
   const [recoverDialogOpen, setRecoverDialogOpen] = useState(false);
   const [datasetId, setDatasetId] = useState("");
   const [runId, setRunId] = useState("");
+  const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null);
 
   const handleSearch = async (filters: SearchFilters) => {
     setIsLoading(true);
@@ -47,49 +56,62 @@ const Index = () => {
         throw new Error(error.message || "Erro ao buscar leads");
       }
 
-      if (data.error) {
+      if (!data.success) {
         console.error("API error:", data.error);
         throw new Error(data.error);
       }
 
-      const fetchedContacts = data.contacts.map((contact: LinkedInContact) => ({
-        ...contact,
-        createdAt: new Date(contact.createdAt),
-      }));
-
-      setContacts(fetchedContacts);
-      setSelectedContacts([]);
-
-      // Build query name from filters
-      const queryParts: string[] = [];
-      if (filters.contactJobTitle?.length) {
-        queryParts.push(filters.contactJobTitle.join(", "));
-      }
-      if (filters.contactLocation?.length) {
-        queryParts.push(filters.contactLocation.join(", "));
-      }
-      if (filters.companyIndustry?.length) {
-        queryParts.push(filters.companyIndustry.join(", "));
-      }
-
-      const newSearch: SearchQuery = {
-        id: `search-${Date.now()}`,
-        query: queryParts.length > 0 ? queryParts.join(" | ") : "Busca personalizada",
+      // Search started successfully - show progress component
+      setActiveSearch({
+        runId: data.runId,
+        datasetId: data.datasetId,
+        fetchCount: data.fetchCount,
         filters,
-        resultsCount: fetchedContacts.length,
-        createdAt: new Date(),
-        contacts: fetchedContacts,
-      };
+      });
 
-      setSearchHistory((prev) => [newSearch, ...prev]);
-
-      toast.success(`${fetchedContacts.length} contatos encontrados`);
+      toast.success("Busca iniciada! Acompanhe o progresso abaixo.");
     } catch (error) {
       console.error("Search error:", error);
       toast.error(error instanceof Error ? error.message : "Erro desconhecido");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleSearchComplete = (fetchedContacts: LinkedInContact[]) => {
+    if (!activeSearch) return;
+
+    setContacts(fetchedContacts);
+    setSelectedContacts([]);
+
+    // Build query name from filters
+    const queryParts: string[] = [];
+    if (activeSearch.filters.contactJobTitle?.length) {
+      queryParts.push(activeSearch.filters.contactJobTitle.join(", "));
+    }
+    if (activeSearch.filters.contactLocation?.length) {
+      queryParts.push(activeSearch.filters.contactLocation.join(", "));
+    }
+    if (activeSearch.filters.companyIndustry?.length) {
+      queryParts.push(activeSearch.filters.companyIndustry.join(", "));
+    }
+
+    const newSearch: SearchQuery = {
+      id: `search-${Date.now()}`,
+      query: queryParts.length > 0 ? queryParts.join(" | ") : "Busca personalizada",
+      filters: activeSearch.filters,
+      resultsCount: fetchedContacts.length,
+      createdAt: new Date(),
+      contacts: fetchedContacts,
+    };
+
+    setSearchHistory((prev) => [newSearch, ...prev]);
+    setActiveSearch(null);
+  };
+
+  const handleSearchCancel = () => {
+    setActiveSearch(null);
+    toast.info("Busca cancelada. Os dados ainda podem estar sendo processados no Apify.");
   };
 
   const handleRecoverDataset = async () => {
@@ -158,6 +180,7 @@ const Index = () => {
   const handleRefresh = () => {
     setContacts([]);
     setSelectedContacts([]);
+    setActiveSearch(null);
     toast.success("Dados limpos");
   };
 
@@ -271,8 +294,19 @@ const Index = () => {
           <div className="lg:col-span-3 space-y-6">
             {/* Search Form */}
             <Card className="p-6 shadow-card">
-              <SearchForm onSearch={handleSearch} isLoading={isLoading} />
+              <SearchForm onSearch={handleSearch} isLoading={isLoading || !!activeSearch} />
             </Card>
+
+            {/* Search Progress */}
+            {activeSearch && (
+              <SearchProgress
+                runId={activeSearch.runId}
+                datasetId={activeSearch.datasetId}
+                fetchCount={activeSearch.fetchCount}
+                onComplete={handleSearchComplete}
+                onCancel={handleSearchCancel}
+              />
+            )}
 
             {/* Results */}
             <Card className="p-6 shadow-card">
