@@ -53,6 +53,51 @@ interface ApifyDatasetItem {
   company_technologies?: string[];
 }
 
+// Map of common location aliases to Apify-accepted values
+const locationAliases: Record<string, string> = {
+  'brasil': 'brazil',
+  'estados unidos': 'united states',
+  'eua': 'united states',
+  'usa': 'united states',
+  'uk': 'united kingdom',
+  'reino unido': 'united kingdom',
+  'alemania': 'germany',
+  'alemanha': 'germany',
+  'frança': 'france',
+  'espanha': 'spain',
+  'itália': 'italy',
+  'japão': 'japan',
+  'china': 'china',
+  'índia': 'india',
+  'rússia': 'russia',
+  'canadá': 'canada',
+  'méxico': 'mexico',
+  'argentina': 'argentina',
+  'portugal': 'portugal',
+  'holanda': 'netherlands',
+  'países baixos': 'netherlands',
+  'suíça': 'switzerland',
+  'áustria': 'austria',
+  'bélgica': 'belgium',
+  'suécia': 'sweden',
+  'noruega': 'norway',
+  'dinamarca': 'denmark',
+  'finlândia': 'finland',
+  'polônia': 'poland',
+  'irlanda': 'ireland',
+  'austrália': 'australia',
+  'nova zelândia': 'new zealand',
+  'coreia do sul': 'south korea',
+  'emirados árabes': 'united arab emirates',
+  'arábia saudita': 'saudi arabia',
+};
+
+// Normalize location values to Apify-accepted format
+function normalizeLocation(location: string): string {
+  const normalized = location.toLowerCase().trim();
+  return locationAliases[normalized] || normalized;
+}
+
 serve(async (req) => {
   // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
@@ -78,8 +123,10 @@ serve(async (req) => {
     if (filters.seniorityLevel?.length) apifyInput.seniority_level = filters.seniorityLevel;
     if (filters.functionalLevel?.length) apifyInput.functional_level = filters.functionalLevel;
     
-    // Location Include
-    if (filters.contactLocation?.length) apifyInput.contact_location = filters.contactLocation;
+    // Location Include - normalize values
+    if (filters.contactLocation?.length) {
+      apifyInput.contact_location = filters.contactLocation.map((loc: string) => normalizeLocation(loc));
+    }
     if (filters.contactCity?.length) apifyInput.contact_city = filters.contactCity;
     
     // Location Exclude
