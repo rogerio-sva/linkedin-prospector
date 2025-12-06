@@ -5,54 +5,6 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
-interface ApifyRunResponse {
-  data: {
-    id: string;
-    status: string;
-    defaultDatasetId: string;
-  };
-}
-
-interface ApifyDatasetItem {
-  first_name?: string;
-  last_name?: string;
-  full_name?: string;
-  job_title?: string;
-  headline?: string;
-  functional_level?: string;
-  seniority_level?: string;
-  email?: string;
-  mobile_number?: string;
-  personal_email?: string;
-  linkedin?: string;
-  city?: string;
-  state?: string;
-  country?: string;
-  company_name?: string;
-  company_domain?: string;
-  company_website?: string;
-  company_linkedin?: string;
-  company_linkedin_uid?: string;
-  company_size?: string;
-  industry?: string;
-  company_description?: string;
-  company_annual_revenue?: string;
-  company_annual_revenue_clean?: number;
-  company_total_funding?: string;
-  company_total_funding_clean?: number;
-  company_founded_year?: number;
-  company_phone?: string;
-  company_street_address?: string;
-  company_city?: string;
-  company_state?: string;
-  company_country?: string;
-  company_postal_code?: string;
-  company_full_address?: string;
-  company_market_cap?: string;
-  keywords?: string[];
-  company_technologies?: string[];
-}
-
 // Map of common location aliases to Apify-accepted values
 const locationAliases: Record<string, string> = {
   'brasil': 'brazil',
@@ -139,32 +91,27 @@ const fundingAliases: Record<string, string> = {
   'outro': 'Other',
 };
 
-// Normalize location values to Apify-accepted format
 function normalizeLocation(location: string): string {
   const normalized = location.toLowerCase().trim();
   return locationAliases[normalized] || normalized;
 }
 
-// Normalize seniority values to Apify-accepted format
 function normalizeSeniority(value: string): string {
   const normalized = value.toLowerCase().trim();
   return seniorityAliases[normalized] || value;
 }
 
-// Normalize functional level values to Apify-accepted format
 function normalizeFunctional(value: string): string {
   const normalized = value.toLowerCase().trim();
   return functionalAliases[normalized] || value;
 }
 
-// Normalize funding values to Apify-accepted format
 function normalizeFunding(value: string): string {
   const normalized = value.toLowerCase().trim();
   return fundingAliases[normalized] || value;
 }
 
 serve(async (req) => {
-  // Handle CORS preflight requests
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
   }
@@ -241,103 +188,28 @@ serve(async (req) => {
       throw new Error(`Failed to start actor run: ${errorText}`);
     }
 
-    const runData: ApifyRunResponse = await runResponse.json();
+    const runData = await runResponse.json();
     const runId = runData.data.id;
     const datasetId = runData.data.defaultDatasetId;
-    console.log(`Actor run started. Run ID: ${runId}, Dataset ID: ${datasetId}`);
-
-    // Poll for completion
-    const statusUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_TOKEN}`;
-    let status = runData.data.status;
-    let attempts = 0;
-    const maxAttempts = 120; // 10 minutes max
-
-    while (status !== 'SUCCEEDED' && status !== 'FAILED' && status !== 'ABORTED' && attempts < maxAttempts) {
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
-      attempts++;
-      
-      const statusResponse = await fetch(statusUrl);
-      const statusData = await statusResponse.json();
-      status = statusData.data.status;
-      console.log(`Polling attempt ${attempts}: Status = ${status}`);
-    }
-
-    if (status !== 'SUCCEEDED') {
-      console.error(`Actor run did not succeed. Final status: ${status}`);
-      throw new Error(`Actor run failed with status: ${status}`);
-    }
-
-    // Fetch dataset items
-    console.log('Fetching dataset items...');
-    const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_TOKEN}`;
-    const datasetResponse = await fetch(datasetUrl);
+    const status = runData.data.status;
     
-    if (!datasetResponse.ok) {
-      const errorText = await datasetResponse.text();
-      console.error('Failed to fetch dataset:', errorText);
-      throw new Error(`Failed to fetch dataset: ${errorText}`);
-    }
+    console.log(`Actor run started. Run ID: ${runId}, Dataset ID: ${datasetId}, Status: ${status}`);
 
-    const items: ApifyDatasetItem[] = await datasetResponse.json();
-    console.log(`Fetched ${items.length} items from dataset`);
-    
-    // Log the first item to see the actual structure
-    if (items.length > 0) {
-      console.log('Sample item structure:', JSON.stringify(items[0]));
-    }
-
-    // Transform to our format
-    const contacts = items.map((item, index) => ({
-      id: `lead-${Date.now()}-${index}`,
-      firstName: item.first_name || '',
-      lastName: item.last_name || '',
-      fullName: item.full_name || `${item.first_name || ''} ${item.last_name || ''}`.trim(),
-      jobTitle: item.job_title || '',
-      headline: item.headline,
-      seniorityLevel: item.seniority_level,
-      functionalLevel: item.functional_level,
-      email: item.email,
-      personalEmail: item.personal_email,
-      mobileNumber: item.mobile_number,
-      linkedin: item.linkedin || '',
-      city: item.city,
-      state: item.state,
-      country: item.country,
-      companyName: item.company_name,
-      companyDomain: item.company_domain,
-      companyWebsite: item.company_website,
-      companyLinkedIn: item.company_linkedin,
-      companyLinkedInUid: item.company_linkedin_uid,
-      companySize: item.company_size,
-      industry: item.industry,
-      companyDescription: item.company_description,
-      companyAnnualRevenue: item.company_annual_revenue,
-      companyAnnualRevenueClean: item.company_annual_revenue_clean,
-      companyTotalFunding: item.company_total_funding,
-      companyTotalFundingClean: item.company_total_funding_clean,
-      companyFoundedYear: item.company_founded_year,
-      companyPhone: item.company_phone,
-      companyStreetAddress: item.company_street_address,
-      companyCity: item.company_city,
-      companyState: item.company_state,
-      companyCountry: item.company_country,
-      companyPostalCode: item.company_postal_code,
-      companyFullAddress: item.company_full_address,
-      companyMarketCap: item.company_market_cap,
-      keywords: item.keywords,
-      companyTechnologies: item.company_technologies,
-      createdAt: new Date().toISOString(),
-    }));
-
-    console.log(`Returning ${contacts.length} transformed contacts`);
-
-    return new Response(JSON.stringify({ contacts, count: contacts.length }), {
+    // Return immediately with the run info - frontend will poll for status
+    return new Response(JSON.stringify({ 
+      success: true,
+      runId,
+      datasetId,
+      status,
+      message: 'Busca iniciada! Acompanhe o progresso abaixo.',
+      fetchCount: apifyInput.fetch_count,
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (error) {
     console.error('Error in search-leads function:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return new Response(JSON.stringify({ error: errorMessage }), {
+    return new Response(JSON.stringify({ success: false, error: errorMessage }), {
       status: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
