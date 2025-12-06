@@ -184,7 +184,9 @@ export const ContactsTable = ({
                   <SortIcon field="companyName" />
                 </Button>
               </TableHead>
-              <TableHead>Contato</TableHead>
+              <TableHead>Email</TableHead>
+              <TableHead>Email Pessoal</TableHead>
+              <TableHead>Telefone</TableHead>
               <TableHead>
                 <Button
                   variant="ghost"
@@ -281,39 +283,47 @@ export const ContactsTable = ({
                   </div>
                 </TableCell>
                 <TableCell>
+                  {contact.email ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={`mailto:${contact.email}`}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <Mail className="h-3 w-3" />
+                          <span className="truncate max-w-[140px]">
+                            {contact.email}
+                          </span>
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent>{contact.email}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">-</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  {contact.personalEmail ? (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <a
+                          href={`mailto:${contact.personalEmail}`}
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <User className="h-3 w-3" />
+                          <span className="truncate max-w-[140px]">
+                            {contact.personalEmail}
+                          </span>
+                        </a>
+                      </TooltipTrigger>
+                      <TooltipContent>{contact.personalEmail}</TooltipContent>
+                    </Tooltip>
+                  ) : (
+                    <span className="text-xs text-muted-foreground">-</span>
+                  )}
+                </TableCell>
+                <TableCell>
                   <div className="flex flex-col gap-1">
-                    {contact.email && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <a
-                            href={`mailto:${contact.email}`}
-                            className="flex items-center gap-1 text-xs text-primary hover:underline"
-                          >
-                            <Building2 className="h-3 w-3" />
-                            <span className="truncate max-w-[120px]">
-                              {contact.email}
-                            </span>
-                          </a>
-                        </TooltipTrigger>
-                        <TooltipContent>Email corporativo: {contact.email}</TooltipContent>
-                      </Tooltip>
-                    )}
-                    {contact.personalEmail && (
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <a
-                            href={`mailto:${contact.personalEmail}`}
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                          >
-                            <User className="h-3 w-3" />
-                            <span className="truncate max-w-[120px]">
-                              {contact.personalEmail}
-                            </span>
-                          </a>
-                        </TooltipTrigger>
-                        <TooltipContent>Email pessoal: {contact.personalEmail}</TooltipContent>
-                      </Tooltip>
-                    )}
                     {contact.mobileNumber && (
                       <a
                         href={`tel:${contact.mobileNumber}`}
@@ -330,14 +340,14 @@ export const ContactsTable = ({
                             href={`tel:${contact.companyPhone}`}
                             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                           >
-                            <Phone className="h-3 w-3" />
+                            <Building2 className="h-3 w-3" />
                             <span className="truncate max-w-[100px]">{contact.companyPhone}</span>
                           </a>
                         </TooltipTrigger>
-                        <TooltipContent>Telefone da empresa: {contact.companyPhone}</TooltipContent>
+                        <TooltipContent>Empresa: {contact.companyPhone}</TooltipContent>
                       </Tooltip>
                     )}
-                    {!contact.email && !contact.personalEmail && !contact.mobileNumber && !contact.companyPhone && (
+                    {!contact.mobileNumber && !contact.companyPhone && (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </div>
