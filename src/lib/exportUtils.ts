@@ -70,8 +70,8 @@ export const exportToCSV = (contacts: LinkedInContact[], filename: string) => {
     contact.companyCountry || "",
     contact.companyPostalCode || "",
     contact.companyFullAddress || "",
-    contact.keywords?.join("; ") || "",
-    contact.companyTechnologies?.join("; ") || "",
+    Array.isArray(contact.keywords) ? contact.keywords.join("; ") : (contact.keywords || ""),
+    Array.isArray(contact.companyTechnologies) ? contact.companyTechnologies.join("; ") : (contact.companyTechnologies || ""),
   ]);
 
   const csvContent = [
@@ -120,8 +120,8 @@ export const exportToXLSX = (contacts: LinkedInContact[], filename: string) => {
     "Company Country": contact.companyCountry || "",
     "Company Postal Code": contact.companyPostalCode || "",
     "Company Full Address": contact.companyFullAddress || "",
-    Keywords: contact.keywords?.join("; ") || "",
-    "Company Technologies": contact.companyTechnologies?.join("; ") || "",
+    Keywords: Array.isArray(contact.keywords) ? contact.keywords.join("; ") : (contact.keywords || ""),
+    "Company Technologies": Array.isArray(contact.companyTechnologies) ? contact.companyTechnologies.join("; ") : (contact.companyTechnologies || ""),
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(data);
