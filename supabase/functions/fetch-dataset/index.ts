@@ -56,16 +56,28 @@ serve(async (req) => {
       throw new Error('APIFY_API_TOKEN is not configured');
     }
 
-    const { datasetId, runId, checkStatusOnly } = await req.json();
+    const { datasetId: providedDatasetId, runId, checkStatusOnly } = await req.json();
     
-    // Check run status
+    let datasetId = providedDatasetId;
+    
+    // Check run status and get datasetId if only runId provided
     if (runId) {
       const statusUrl = `https://api.apify.com/v2/actor-runs/${runId}?token=${APIFY_API_TOKEN}`;
       const statusResponse = await fetch(statusUrl);
-      const statusData = await statusResponse.json();
       
-      const runStatus = statusData.data.status;
-      const stats = statusData.data.stats || {};
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to fetch run status: ${statusResponse.status}`);
+      }
+      
+      const statusData = await statusResponse.json();
+      const runStatus = statusData.data?.status;
+      const stats = statusData.data?.stats || {};
+      
+      // Get datasetId from run if not provided
+      if (!datasetId && statusData.data?.defaultDatasetId) {
+        datasetId = statusData.data.defaultDatasetId;
+        console.log(`Got datasetId from run: ${datasetId}`);
+      }
       
       console.log(`Run ${runId} status: ${runStatus}`);
       
@@ -73,6 +85,7 @@ serve(async (req) => {
       if (checkStatusOnly) {
         return new Response(JSON.stringify({ 
           status: runStatus,
+          datasetId,
           stats: {
             inputRecordCount: stats.inputRecordCount || 0,
             outputRecordCount: stats.outputRecordCount || 0,
@@ -87,6 +100,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ 
           status: runStatus,
           message: 'A busca ainda está em andamento.',
+          datasetId,
           stats: {
             inputRecordCount: stats.inputRecordCount || 0,
             outputRecordCount: stats.outputRecordCount || 0,
@@ -109,7 +123,7 @@ serve(async (req) => {
     }
 
     if (!datasetId) {
-      throw new Error('datasetId is required');
+      throw new Error('datasetId or runId is required');
     }
 
     console.log(`Fetching dataset: ${datasetId}`);
