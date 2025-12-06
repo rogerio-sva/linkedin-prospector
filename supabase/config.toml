@@ -32,3 +32,6 @@ site_url = "http://127.0.0.1:3000"
 
 [functions.search-leads]
 verify_jwt = false
+
+[functions.fetch-dataset]
+verify_jwt = false
