@@ -148,7 +148,7 @@ serve(async (req) => {
     if (filters.funding?.length) apifyInput.funding = filters.funding;
     
     // General
-    apifyInput.fetch_count = filters.fetchCount || 50;
+    apifyInput.fetch_count = filters.fetchCount || 1000;
     if (filters.fileName) apifyInput.file_name = filters.fileName;
 
     console.log('Apify input:', JSON.stringify(apifyInput));
