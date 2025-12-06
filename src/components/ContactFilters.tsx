@@ -119,12 +119,12 @@ export const ContactFilters = ({
       {/* Expanded filters */}
       {isExpanded && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 p-3 bg-muted/30 rounded-lg border border-border">
-          <Select value={filters.jobTitle} onValueChange={(v) => updateFilter("jobTitle", v)}>
+          <Select value={filters.jobTitle || "all"} onValueChange={(v) => updateFilter("jobTitle", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Cargo" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todos os cargos</SelectItem>
+              <SelectItem value="all">Todos os cargos</SelectItem>
               {uniqueValues.jobTitles.slice(0, 50).map((job) => (
                 <SelectItem key={job} value={job} className="text-xs">
                   {job}
@@ -133,12 +133,12 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.company} onValueChange={(v) => updateFilter("company", v)}>
+          <Select value={filters.company || "all"} onValueChange={(v) => updateFilter("company", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Empresa" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todas as empresas</SelectItem>
+              <SelectItem value="all">Todas as empresas</SelectItem>
               {uniqueValues.companies.slice(0, 50).map((company) => (
                 <SelectItem key={company} value={company} className="text-xs">
                   {company}
@@ -147,12 +147,12 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.industry} onValueChange={(v) => updateFilter("industry", v)}>
+          <Select value={filters.industry || "all"} onValueChange={(v) => updateFilter("industry", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Indústria" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todas as indústrias</SelectItem>
+              <SelectItem value="all">Todas as indústrias</SelectItem>
               {uniqueValues.industries.slice(0, 50).map((industry) => (
                 <SelectItem key={industry} value={industry} className="text-xs">
                   {industry}
@@ -161,12 +161,12 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.city} onValueChange={(v) => updateFilter("city", v)}>
+          <Select value={filters.city || "all"} onValueChange={(v) => updateFilter("city", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Cidade" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todas as cidades</SelectItem>
+              <SelectItem value="all">Todas as cidades</SelectItem>
               {uniqueValues.cities.slice(0, 50).map((city) => (
                 <SelectItem key={city} value={city} className="text-xs">
                   {city}
@@ -175,23 +175,23 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.hasEmail} onValueChange={(v) => updateFilter("hasEmail", v)}>
+          <Select value={filters.hasEmail || "all"} onValueChange={(v) => updateFilter("hasEmail", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Email" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todos</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="yes">Com email</SelectItem>
               <SelectItem value="no">Sem email</SelectItem>
             </SelectContent>
           </Select>
 
-          <Select value={filters.hasPhone} onValueChange={(v) => updateFilter("hasPhone", v)}>
+          <Select value={filters.hasPhone || "all"} onValueChange={(v) => updateFilter("hasPhone", v === "all" ? "" : v)}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Telefone" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Todos</SelectItem>
+              <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="yes">Com telefone</SelectItem>
               <SelectItem value="no">Sem telefone</SelectItem>
             </SelectContent>
