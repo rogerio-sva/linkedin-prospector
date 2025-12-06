@@ -18,7 +18,7 @@ interface ExportMenuProps {
 
 export const ExportMenu = ({
   contacts,
-  selectedContacts,
+  selectedContacts = [],
   filename = "linkedin-contacts",
 }: ExportMenuProps) => {
   const getExportContacts = () => {
