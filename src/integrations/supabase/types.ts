@@ -14,7 +14,107 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      bases: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      contacts: {
+        Row: {
+          base_id: string
+          city: string | null
+          company_name: string | null
+          company_phone: string | null
+          company_website: string | null
+          country: string | null
+          created_at: string
+          email: string | null
+          first_name: string | null
+          full_data: Json | null
+          full_name: string | null
+          id: string
+          industry: string | null
+          job_title: string | null
+          last_name: string | null
+          linkedin_url: string | null
+          mobile_number: string | null
+          personal_email: string | null
+          seniority_level: string | null
+          state: string | null
+        }
+        Insert: {
+          base_id: string
+          city?: string | null
+          company_name?: string | null
+          company_phone?: string | null
+          company_website?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          full_data?: Json | null
+          full_name?: string | null
+          id?: string
+          industry?: string | null
+          job_title?: string | null
+          last_name?: string | null
+          linkedin_url?: string | null
+          mobile_number?: string | null
+          personal_email?: string | null
+          seniority_level?: string | null
+          state?: string | null
+        }
+        Update: {
+          base_id?: string
+          city?: string | null
+          company_name?: string | null
+          company_phone?: string | null
+          company_website?: string | null
+          country?: string | null
+          created_at?: string
+          email?: string | null
+          first_name?: string | null
+          full_data?: Json | null
+          full_name?: string | null
+          id?: string
+          industry?: string | null
+          job_title?: string | null
+          last_name?: string | null
+          linkedin_url?: string | null
+          mobile_number?: string | null
+          personal_email?: string | null
+          seniority_level?: string | null
+          state?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contacts_base_id_fkey"
+            columns: ["base_id"]
+            isOneToOne: false
+            referencedRelation: "bases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
