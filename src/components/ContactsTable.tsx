@@ -1,15 +1,5 @@
 import { useState } from "react";
 import {
-  ExternalLink,
-  Mail,
-  Phone,
-  MapPin,
-  Building2,
-  ChevronDown,
-  ChevronUp,
-  User,
-} from "lucide-react";
-import {
   Table,
   TableBody,
   TableCell,
@@ -17,10 +7,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { LinkedInContact } from "@/types/contact";
+import {
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ExternalLink,
+  Mail,
+  Phone,
+  Building2,
+  MapPin,
+  User,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 interface ContactsTableProps {
   contacts: LinkedInContact[];
@@ -28,13 +35,16 @@ interface ContactsTableProps {
   onSelectionChange: (ids: string[]) => void;
 }
 
+type SortField = keyof LinkedInContact;
+type SortDirection = "asc" | "desc";
+
 export const ContactsTable = ({
   contacts,
   selectedContacts,
   onSelectionChange,
 }: ContactsTableProps) => {
-  const [sortField, setSortField] = useState<keyof LinkedInContact>("fullName");
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
+  const [sortField, setSortField] = useState<SortField>("fullName");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
@@ -48,13 +58,13 @@ export const ContactsTable = ({
     if (checked) {
       onSelectionChange([...selectedContacts, id]);
     } else {
-      onSelectionChange(selectedContacts.filter((cid) => cid !== id));
+      onSelectionChange(selectedContacts.filter((cId) => cId !== id));
     }
   };
 
-  const handleSort = (field: keyof LinkedInContact) => {
+  const handleSort = (field: SortField) => {
     if (sortField === field) {
-      setSortDirection((prev) => (prev === "asc" ? "desc" : "asc"));
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
     } else {
       setSortField(field);
       setSortDirection("asc");
@@ -62,30 +72,41 @@ export const ContactsTable = ({
   };
 
   const sortedContacts = [...contacts].sort((a, b) => {
-    const aValue = a[sortField] || "";
-    const bValue = b[sortField] || "";
-    const comparison = String(aValue).localeCompare(String(bValue));
+    const aValue = a[sortField];
+    const bValue = b[sortField];
+
+    if (aValue === undefined || aValue === null) return 1;
+    if (bValue === undefined || bValue === null) return -1;
+
+    let comparison = 0;
+    if (typeof aValue === "string" && typeof bValue === "string") {
+      comparison = aValue.localeCompare(bValue);
+    } else if (aValue < bValue) {
+      comparison = -1;
+    } else if (aValue > bValue) {
+      comparison = 1;
+    }
+
     return sortDirection === "asc" ? comparison : -comparison;
   });
 
-  const SortIcon = ({ field }: { field: keyof LinkedInContact }) => {
-    if (sortField !== field) return null;
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field) {
+      return <ArrowUpDown className="ml-1 h-3 w-3" />;
+    }
     return sortDirection === "asc" ? (
-      <ChevronUp className="h-4 w-4" />
+      <ArrowUp className="ml-1 h-3 w-3" />
     ) : (
-      <ChevronDown className="h-4 w-4" />
+      <ArrowDown className="ml-1 h-3 w-3" />
     );
   };
 
-  const getConnectionBadgeVariant = (degree?: string) => {
-    switch (degree) {
-      case "1st":
-        return "default";
-      case "2nd":
-        return "secondary";
-      default:
-        return "outline";
-    }
+  const getSeniorityBadgeVariant = (seniority?: string) => {
+    if (!seniority) return "outline";
+    const level = seniority.toLowerCase();
+    if (["founder", "owner", "c-level"].includes(level)) return "default";
+    if (["director", "vp", "head"].includes(level)) return "secondary";
+    return "outline";
   };
 
   if (contacts.length === 0) {
@@ -105,151 +126,201 @@ export const ContactsTable = ({
   }
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/50 hover:bg-muted/50">
-            <TableHead className="w-12">
-              <Checkbox
-                checked={
-                  selectedContacts.length === contacts.length &&
-                  contacts.length > 0
-                }
-                onCheckedChange={handleSelectAll}
-              />
-            </TableHead>
-            <TableHead
-              className="cursor-pointer hover:text-foreground transition-colors"
-              onClick={() => handleSort("fullName")}
-            >
-              <div className="flex items-center gap-1">
-                Nome
-                <SortIcon field="fullName" />
-              </div>
-            </TableHead>
-            <TableHead
-              className="cursor-pointer hover:text-foreground transition-colors"
-              onClick={() => handleSort("company")}
-            >
-              <div className="flex items-center gap-1">
-                Empresa
-                <SortIcon field="company" />
-              </div>
-            </TableHead>
-            <TableHead
-              className="cursor-pointer hover:text-foreground transition-colors"
-              onClick={() => handleSort("position")}
-            >
-              <div className="flex items-center gap-1">
-                Cargo
-                <SortIcon field="position" />
-              </div>
-            </TableHead>
-            <TableHead
-              className="cursor-pointer hover:text-foreground transition-colors"
-              onClick={() => handleSort("location")}
-            >
-              <div className="flex items-center gap-1">
-                Localização
-                <SortIcon field="location" />
-              </div>
-            </TableHead>
-            <TableHead>Contato</TableHead>
-            <TableHead className="w-24">Conexão</TableHead>
-            <TableHead className="w-16"></TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {sortedContacts.map((contact, index) => (
-            <TableRow
-              key={contact.id}
-              className="animate-fade-in"
-              style={{ animationDelay: `${index * 30}ms` }}
-            >
-              <TableCell>
+    <TooltipProvider>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-muted/50">
+              <TableHead className="w-12">
                 <Checkbox
-                  checked={selectedContacts.includes(contact.id)}
-                  onCheckedChange={(checked) =>
-                    handleSelectOne(contact.id, checked as boolean)
+                  checked={
+                    contacts.length > 0 &&
+                    selectedContacts.length === contacts.length
                   }
+                  onCheckedChange={handleSelectAll}
                 />
-              </TableCell>
-              <TableCell>
-                <div>
-                  <p className="font-medium text-foreground">
-                    {contact.fullName}
-                  </p>
-                  <p className="text-sm text-muted-foreground line-clamp-1">
-                    {contact.headline}
-                  </p>
-                </div>
-              </TableCell>
-              <TableCell>
-                {contact.company && (
-                  <div className="flex items-center gap-1.5 text-sm">
-                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                    {contact.company}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell>
-                <span className="text-sm">{contact.position || "-"}</span>
-              </TableCell>
-              <TableCell>
-                {contact.location && (
-                  <div className="flex items-center gap-1.5 text-sm">
-                    <MapPin className="h-3.5 w-3.5 text-muted-foreground" />
-                    {contact.location}
-                  </div>
-                )}
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  {contact.email && (
-                    <a
-                      href={`mailto:${contact.email}`}
-                      className="text-muted-foreground hover:text-primary transition-colors"
-                      title={contact.email}
-                    >
-                      <Mail className="h-4 w-4" />
-                    </a>
-                  )}
-                  {contact.phone && (
-                    <a
-                      href={`tel:${contact.phone}`}
-                      className="text-muted-foreground hover:text-primary transition-colors"
-                      title={contact.phone}
-                    >
-                      <Phone className="h-4 w-4" />
-                    </a>
-                  )}
-                </div>
-              </TableCell>
-              <TableCell>
-                <Badge variant={getConnectionBadgeVariant(contact.connectionDegree)}>
-                  {contact.connectionDegree || "N/A"}
-                </Badge>
-              </TableCell>
-              <TableCell>
+              </TableHead>
+              <TableHead>
                 <Button
                   variant="ghost"
-                  size="icon"
-                  asChild
-                  className="h-8 w-8"
+                  size="sm"
+                  onClick={() => handleSort("fullName")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
                 >
-                  <a
-                    href={contact.profileUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </a>
+                  Nome
+                  <SortIcon field="fullName" />
                 </Button>
-              </TableCell>
+              </TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSort("jobTitle")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
+                >
+                  Cargo
+                  <SortIcon field="jobTitle" />
+                </Button>
+              </TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSort("companyName")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
+                >
+                  Empresa
+                  <SortIcon field="companyName" />
+                </Button>
+              </TableHead>
+              <TableHead>Contato</TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSort("industry")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
+                >
+                  Indústria
+                  <SortIcon field="industry" />
+                </Button>
+              </TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleSort("country")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
+                >
+                  Localização
+                  <SortIcon field="country" />
+                </Button>
+              </TableHead>
+              <TableHead>Nível</TableHead>
             </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+          </TableHeader>
+          <TableBody>
+            {sortedContacts.map((contact) => (
+              <TableRow
+                key={contact.id}
+                className={
+                  selectedContacts.includes(contact.id) ? "bg-muted/30" : ""
+                }
+              >
+                <TableCell>
+                  <Checkbox
+                    checked={selectedContacts.includes(contact.id)}
+                    onCheckedChange={(checked) =>
+                      handleSelectOne(contact.id, checked as boolean)
+                    }
+                  />
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium">{contact.fullName}</span>
+                      {contact.linkedin && (
+                        <a
+                          href={contact.linkedin}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-primary hover:text-primary/80"
+                        >
+                          <ExternalLink className="h-3 w-3" />
+                        </a>
+                      )}
+                    </div>
+                    {contact.headline && (
+                      <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                        {contact.headline}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm">{contact.jobTitle}</span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-1">
+                    <div className="flex items-center gap-1">
+                      <Building2 className="h-3 w-3 text-muted-foreground" />
+                      <span className="text-sm font-medium">
+                        {contact.companyName || "-"}
+                      </span>
+                    </div>
+                    {contact.companyWebsite && (
+                      <a
+                        href={contact.companyWebsite}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-primary hover:underline flex items-center gap-1"
+                      >
+                        {contact.companyDomain}
+                        <ExternalLink className="h-2 w-2" />
+                      </a>
+                    )}
+                    {contact.companySize && (
+                      <span className="text-xs text-muted-foreground">
+                        {contact.companySize} funcionários
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-col gap-1">
+                    {contact.email && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={`mailto:${contact.email}`}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <Mail className="h-3 w-3" />
+                            <span className="truncate max-w-[120px]">
+                              {contact.email}
+                            </span>
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>{contact.email}</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {contact.mobileNumber && (
+                      <a
+                        href={`tel:${contact.mobileNumber}`}
+                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        <Phone className="h-3 w-3" />
+                        {contact.mobileNumber}
+                      </a>
+                    )}
+                    {!contact.email && !contact.mobileNumber && (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm">{contact.industry || "-"}</span>
+                </TableCell>
+                <TableCell>
+                  <div className="flex items-center gap-1 text-sm">
+                    <MapPin className="h-3 w-3 text-muted-foreground" />
+                    {[contact.city, contact.state, contact.country]
+                      .filter(Boolean)
+                      .join(", ") || "-"}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {contact.seniorityLevel && (
+                    <Badge variant={getSeniorityBadgeVariant(contact.seniorityLevel)}>
+                      {contact.seniorityLevel}
+                    </Badge>
+                  )}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+    </TooltipProvider>
   );
 };
