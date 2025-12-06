@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.fetch-dataset]
 verify_jwt = false
+
+[functions.suggest-jobs]
+verify_jwt = false

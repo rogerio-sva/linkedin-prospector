@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Linkedin, Settings, RefreshCw, Download } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { SearchHistory } from "@/components/SearchHistory";
 import { ExportMenu } from "@/components/ExportMenu";
 import { StatsCards } from "@/components/StatsCards";
 import { SearchProgress } from "@/components/SearchProgress";
+import { ContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -20,6 +21,16 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -29,6 +40,16 @@ interface ActiveSearch {
   fetchCount: number;
   filters: SearchFilters;
 }
+
+const initialContactFilters: ContactFiltersState = {
+  search: "",
+  jobTitle: "",
+  company: "",
+  industry: "",
+  city: "",
+  hasEmail: "",
+  hasPhone: "",
+};
 
 const Index = () => {
   const [contacts, setContacts] = useState<LinkedInContact[]>([]);
@@ -40,6 +61,15 @@ const Index = () => {
   const [datasetId, setDatasetId] = useState("");
   const [runId, setRunId] = useState("");
   const [activeSearch, setActiveSearch] = useState<ActiveSearch | null>(null);
+  const [contactFilters, setContactFilters] = useState<ContactFiltersState>(initialContactFilters);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [deleteType, setDeleteType] = useState<"selected" | "filtered">("selected");
+
+  // Filtered contacts
+  const filteredContacts = useMemo(
+    () => filterContacts(contacts, contactFilters),
+    [contacts, contactFilters]
+  );
 
   const handleSearch = async (filters: SearchFilters) => {
     setIsLoading(true);
@@ -83,6 +113,7 @@ const Index = () => {
 
     setContacts(fetchedContacts);
     setSelectedContacts([]);
+    setContactFilters(initialContactFilters);
 
     // Build query name from filters
     const queryParts: string[] = [];
@@ -147,6 +178,7 @@ const Index = () => {
 
       setContacts(fetchedContacts);
       setSelectedContacts([]);
+      setContactFilters(initialContactFilters);
 
       const newSearch: SearchQuery = {
         id: `search-${Date.now()}`,
@@ -174,6 +206,7 @@ const Index = () => {
   const handleLoadSearch = (search: SearchQuery) => {
     setContacts(search.contacts);
     setSelectedContacts([]);
+    setContactFilters(initialContactFilters);
     toast.success(`Busca "${search.query}" carregada`);
   };
 
@@ -181,7 +214,34 @@ const Index = () => {
     setContacts([]);
     setSelectedContacts([]);
     setActiveSearch(null);
+    setContactFilters(initialContactFilters);
     toast.success("Dados limpos");
+  };
+
+  const handleDeleteSelected = () => {
+    setDeleteType("selected");
+    setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteFiltered = () => {
+    setDeleteType("filtered");
+    setDeleteDialogOpen(true);
+  };
+
+  const confirmDelete = () => {
+    if (deleteType === "selected") {
+      const remaining = contacts.filter((c) => !selectedContacts.includes(c.id));
+      setContacts(remaining);
+      toast.success(`${selectedContacts.length} contato(s) excluído(s)`);
+      setSelectedContacts([]);
+    } else {
+      const filteredIds = new Set(filteredContacts.map((c) => c.id));
+      const remaining = contacts.filter((c) => !filteredIds.has(c.id));
+      setContacts(remaining);
+      toast.success(`${filteredContacts.length} contato(s) excluído(s)`);
+      setContactFilters(initialContactFilters);
+    }
+    setDeleteDialogOpen(false);
   };
 
   const totalEmailsAvailable = contacts.filter((c) => c.email).length;
@@ -189,6 +249,27 @@ const Index = () => {
 
   return (
     <div className="min-h-screen bg-background">
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Confirmar exclusão</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteType === "selected"
+                ? `Tem certeza que deseja excluir ${selectedContacts.length} contato(s) selecionado(s)?`
+                : `Tem certeza que deseja excluir ${filteredContacts.length} contato(s) filtrado(s)?`}
+              {" "}Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header */}
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
@@ -316,7 +397,9 @@ const Index = () => {
                     Contatos
                   </h2>
                   <p className="text-sm text-muted-foreground">
-                    {contacts.length} resultado{contacts.length !== 1 ? "s" : ""}
+                    {filteredContacts.length === contacts.length
+                      ? `${contacts.length} resultado${contacts.length !== 1 ? "s" : ""}`
+                      : `${filteredContacts.length} de ${contacts.length} contatos`}
                     {selectedContacts.length > 0 && (
                       <span className="text-primary">
                         {" "}
@@ -327,12 +410,28 @@ const Index = () => {
                   </p>
                 </div>
                 <ExportMenu
-                  contacts={contacts}
+                  contacts={filteredContacts}
                   selectedContacts={selectedContacts}
                 />
               </div>
+
+              {/* Contact Filters */}
+              {contacts.length > 0 && (
+                <div className="mb-4">
+                  <ContactFilters
+                    contacts={contacts}
+                    filters={contactFilters}
+                    onFiltersChange={setContactFilters}
+                    selectedCount={selectedContacts.length}
+                    onDeleteSelected={handleDeleteSelected}
+                    onDeleteFiltered={handleDeleteFiltered}
+                    filteredCount={filteredContacts.length}
+                  />
+                </div>
+              )}
+
               <ContactsTable
-                contacts={contacts}
+                contacts={filteredContacts}
                 selectedContacts={selectedContacts}
                 onSelectionChange={setSelectedContacts}
               />

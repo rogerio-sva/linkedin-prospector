@@ -25,6 +25,7 @@ import {
   FUNDING_OPTIONS,
   EMAIL_STATUS_OPTIONS,
 } from "@/types/contact";
+import { JobSuggestions } from "./JobSuggestions";
 
 interface SearchFormProps {
   onSearch: (filters: SearchFilters) => void;
@@ -250,16 +251,27 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
       </div>
 
       {filters.contactJobTitle && filters.contactJobTitle.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {filters.contactJobTitle.map((title) => (
-            <Badge key={title} variant="secondary" className="gap-1">
-              {title}
-              <X
-                className="h-3 w-3 cursor-pointer"
-                onClick={() => removeFromArrayFilter("contactJobTitle", title)}
-              />
-            </Badge>
-          ))}
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-1">
+            {filters.contactJobTitle.map((title) => (
+              <Badge key={title} variant="secondary" className="gap-1">
+                {title}
+                <X
+                  className="h-3 w-3 cursor-pointer"
+                  onClick={() => removeFromArrayFilter("contactJobTitle", title)}
+                />
+              </Badge>
+            ))}
+          </div>
+          <JobSuggestions 
+            currentJobTitles={filters.contactJobTitle}
+            onAddJobTitle={(title) => {
+              setFilters((prev) => ({
+                ...prev,
+                contactJobTitle: [...(prev.contactJobTitle || []), title],
+              }));
+            }}
+          />
         </div>
       )}
 
