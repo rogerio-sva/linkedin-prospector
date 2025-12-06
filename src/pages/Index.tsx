@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Linkedin, Settings, RefreshCw } from "lucide-react";
+import { Linkedin, Settings, RefreshCw, Download } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SearchForm } from "@/components/SearchForm";
@@ -11,12 +11,26 @@ import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 const Index = () => {
   const [contacts, setContacts] = useState<LinkedInContact[]>([]);
   const [searchHistory, setSearchHistory] = useState<SearchQuery[]>(mockSearchHistory);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
+  const [recoverDialogOpen, setRecoverDialogOpen] = useState(false);
+  const [datasetId, setDatasetId] = useState("");
+  const [runId, setRunId] = useState("");
 
   const handleSearch = async (filters: SearchFilters) => {
     setIsLoading(true);
@@ -78,6 +92,63 @@ const Index = () => {
     }
   };
 
+  const handleRecoverDataset = async () => {
+    if (!datasetId.trim()) {
+      toast.error("Informe o Dataset ID");
+      return;
+    }
+
+    setIsRecovering(true);
+
+    try {
+      const { data, error } = await supabase.functions.invoke("fetch-dataset", {
+        body: { datasetId: datasetId.trim(), runId: runId.trim() || undefined },
+      });
+
+      if (error) {
+        throw new Error(error.message || "Erro ao recuperar dataset");
+      }
+
+      if (data.status === "RUNNING") {
+        toast.info(data.message);
+        return;
+      }
+
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      const fetchedContacts = data.contacts.map((contact: LinkedInContact) => ({
+        ...contact,
+        createdAt: new Date(contact.createdAt),
+      }));
+
+      setContacts(fetchedContacts);
+      setSelectedContacts([]);
+
+      const newSearch: SearchQuery = {
+        id: `search-${Date.now()}`,
+        query: `Recuperado: ${datasetId.slice(0, 8)}...`,
+        filters: {},
+        resultsCount: fetchedContacts.length,
+        createdAt: new Date(),
+        contacts: fetchedContacts,
+      };
+
+      setSearchHistory((prev) => [newSearch, ...prev]);
+      setRecoverDialogOpen(false);
+      setDatasetId("");
+      setRunId("");
+
+      toast.success(`${fetchedContacts.length} contatos recuperados!`);
+    } catch (error) {
+      console.error("Recovery error:", error);
+      toast.error(error instanceof Error ? error.message : "Erro ao recuperar");
+    } finally {
+      setIsRecovering(false);
+    }
+  };
+
   const handleLoadSearch = (search: SearchQuery) => {
     setContacts(search.contacts);
     setSelectedContacts([]);
@@ -113,6 +184,51 @@ const Index = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <Dialog open={recoverDialogOpen} onOpenChange={setRecoverDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button variant="ghost" size="icon" title="Recuperar busca">
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Recuperar Busca</DialogTitle>
+                    <DialogDescription>
+                      Informe o Dataset ID para recuperar os resultados de uma busca anterior.
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="datasetId">Dataset ID *</Label>
+                      <Input
+                        id="datasetId"
+                        value={datasetId}
+                        onChange={(e) => setDatasetId(e.target.value)}
+                        placeholder="Ex: PfH2NdRh3Rwc1WXYh"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="runId">Run ID (opcional)</Label>
+                      <Input
+                        id="runId"
+                        value={runId}
+                        onChange={(e) => setRunId(e.target.value)}
+                        placeholder="Ex: Pt8bUAgELo75dnLI4"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Informe o Run ID para verificar se a busca já terminou
+                      </p>
+                    </div>
+                    <Button 
+                      onClick={handleRecoverDataset} 
+                      disabled={isRecovering || !datasetId.trim()}
+                      className="w-full"
+                    >
+                      {isRecovering ? "Recuperando..." : "Recuperar Dados"}
+                    </Button>
+                  </div>
+                </DialogContent>
+              </Dialog>
               <Button variant="ghost" size="icon" onClick={handleRefresh}>
                 <RefreshCw className="h-4 w-4" />
               </Button>
