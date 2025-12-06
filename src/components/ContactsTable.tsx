@@ -144,10 +144,21 @@ export const ContactsTable = ({
                 <Button
                   variant="ghost"
                   size="sm"
+                  onClick={() => handleSort("firstName")}
+                  className="h-8 p-0 font-medium hover:bg-transparent"
+                >
+                  Primeiro Nome
+                  <SortIcon field="firstName" />
+                </Button>
+              </TableHead>
+              <TableHead>
+                <Button
+                  variant="ghost"
+                  size="sm"
                   onClick={() => handleSort("fullName")}
                   className="h-8 p-0 font-medium hover:bg-transparent"
                 >
-                  Nome
+                  Nome Completo
                   <SortIcon field="fullName" />
                 </Button>
               </TableHead>
@@ -214,6 +225,9 @@ export const ContactsTable = ({
                       handleSelectOne(contact.id, checked as boolean)
                     }
                   />
+                </TableCell>
+                <TableCell>
+                  <span className="text-sm font-medium">{contact.firstName || "-"}</span>
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col">
