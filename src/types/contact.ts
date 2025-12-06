@@ -85,31 +85,31 @@ export interface SearchFilters {
 }
 
 export const SENIORITY_LEVELS = [
-  'Founder',
-  'Owner',
+  'Fundador',
+  'Proprietário',
   'C-Level',
-  'Director',
+  'Diretor',
   'VP',
   'Head',
-  'Manager',
-  'Senior',
-  'Entry',
-  'Trainee',
+  'Gerente',
+  'Sênior',
+  'Júnior',
+  'Estagiário',
 ] as const;
 
 export const FUNCTIONAL_LEVELS = [
   'C-Level',
-  'Finance',
-  'Product',
-  'Engineering',
+  'Finanças',
+  'Produto',
+  'Engenharia',
   'Design',
-  'HR',
-  'IT',
-  'Legal',
+  'RH',
+  'TI',
+  'Jurídico',
   'Marketing',
-  'Operations',
-  'Sales',
-  'Support',
+  'Operações',
+  'Vendas',
+  'Suporte',
 ] as const;
 
 export const COMPANY_SIZES = [
@@ -127,32 +127,32 @@ export const COMPANY_SIZES = [
 ] as const;
 
 export const REVENUE_OPTIONS = [
-  { value: '100K', label: '$100K' },
-  { value: '500K', label: '$500K' },
-  { value: '1M', label: '$1M' },
-  { value: '5M', label: '$5M' },
-  { value: '10M', label: '$10M' },
-  { value: '50M', label: '$50M' },
-  { value: '100M', label: '$100M' },
-  { value: '500M', label: '$500M' },
-  { value: '1B', label: '$1B' },
-  { value: '10B', label: '$10B' },
+  { value: '100K', label: 'R$ 500 mil' },
+  { value: '500K', label: 'R$ 2,5 milhões' },
+  { value: '1M', label: 'R$ 5 milhões' },
+  { value: '5M', label: 'R$ 25 milhões' },
+  { value: '10M', label: 'R$ 50 milhões' },
+  { value: '50M', label: 'R$ 250 milhões' },
+  { value: '100M', label: 'R$ 500 milhões' },
+  { value: '500M', label: 'R$ 2,5 bilhões' },
+  { value: '1B', label: 'R$ 5 bilhões' },
+  { value: '10B', label: 'R$ 50 bilhões' },
 ] as const;
 
 export const FUNDING_OPTIONS = [
   'Seed',
-  'Angel',
-  'Series A',
-  'Series B',
-  'Series C',
-  'Series D',
-  'Series E',
-  'Series F',
+  'Anjo',
+  'Série A',
+  'Série B',
+  'Série C',
+  'Série D',
+  'Série E',
+  'Série F',
   'Venture',
-  'Debt',
-  'Convertible',
-  'PE',
-  'Other',
+  'Dívida',
+  'Conversível',
+  'Private Equity',
+  'Outro',
 ] as const;
 
 export const EMAIL_STATUS_OPTIONS = [
