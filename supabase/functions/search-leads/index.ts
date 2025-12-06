@@ -107,7 +107,7 @@ serve(async (req) => {
     console.log('Apify input:', JSON.stringify(apifyInput));
 
     // Start actor run
-    const actorId = 'nicobytes/leads-finder';
+    const actorId = 'code_crafter/leads-finder';
     const runUrl = `https://api.apify.com/v2/acts/${actorId}/runs?token=${APIFY_API_TOKEN}`;
     
     console.log('Starting Apify actor run...');
