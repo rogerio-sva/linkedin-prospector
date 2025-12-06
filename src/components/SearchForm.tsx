@@ -143,7 +143,7 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
     minRevenue: "",
     maxRevenue: "",
     funding: [],
-    fetchCount: 50,
+    fetchCount: 1000,
     fileName: "",
   });
 
@@ -491,13 +491,16 @@ export const SearchForm = ({ onSearch, isLoading }: SearchFormProps) => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="25">25 contatos</SelectItem>
-                    <SelectItem value="50">50 contatos</SelectItem>
                     <SelectItem value="100">100 contatos</SelectItem>
+                    <SelectItem value="250">250 contatos</SelectItem>
+                    <SelectItem value="500">500 contatos</SelectItem>
+                    <SelectItem value="1000">1.000 contatos</SelectItem>
+                    <SelectItem value="2500">2.500 contatos</SelectItem>
+                    <SelectItem value="5000">5.000 contatos</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Plano gratuito: máximo 100 leads por execução
+                  Plano pago: até 50.000 leads por execução
                 </p>
               </div>
               <div className="space-y-2">

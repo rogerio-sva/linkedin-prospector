@@ -289,13 +289,29 @@ export const ContactsTable = ({
                             href={`mailto:${contact.email}`}
                             className="flex items-center gap-1 text-xs text-primary hover:underline"
                           >
-                            <Mail className="h-3 w-3" />
+                            <Building2 className="h-3 w-3" />
                             <span className="truncate max-w-[120px]">
                               {contact.email}
                             </span>
                           </a>
                         </TooltipTrigger>
-                        <TooltipContent>{contact.email}</TooltipContent>
+                        <TooltipContent>Email corporativo: {contact.email}</TooltipContent>
+                      </Tooltip>
+                    )}
+                    {contact.personalEmail && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={`mailto:${contact.personalEmail}`}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <User className="h-3 w-3" />
+                            <span className="truncate max-w-[120px]">
+                              {contact.personalEmail}
+                            </span>
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>Email pessoal: {contact.personalEmail}</TooltipContent>
                       </Tooltip>
                     )}
                     {contact.mobileNumber && (
@@ -314,14 +330,14 @@ export const ContactsTable = ({
                             href={`tel:${contact.companyPhone}`}
                             className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
                           >
-                            <Building2 className="h-3 w-3" />
+                            <Phone className="h-3 w-3" />
                             <span className="truncate max-w-[100px]">{contact.companyPhone}</span>
                           </a>
                         </TooltipTrigger>
                         <TooltipContent>Telefone da empresa: {contact.companyPhone}</TooltipContent>
                       </Tooltip>
                     )}
-                    {!contact.email && !contact.mobileNumber && !contact.companyPhone && (
+                    {!contact.email && !contact.personalEmail && !contact.mobileNumber && !contact.companyPhone && (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
                   </div>
