@@ -92,10 +92,75 @@ const locationAliases: Record<string, string> = {
   'arábia saudita': 'saudi arabia',
 };
 
+// Map Portuguese seniority levels to Apify-accepted values
+const seniorityAliases: Record<string, string> = {
+  'fundador': 'Founder',
+  'proprietário': 'Owner',
+  'c-level': 'C-Level',
+  'diretor': 'Director',
+  'vp': 'VP',
+  'head': 'Head',
+  'gerente': 'Manager',
+  'sênior': 'Senior',
+  'júnior': 'Entry',
+  'estagiário': 'Trainee',
+};
+
+// Map Portuguese functional levels to Apify-accepted values
+const functionalAliases: Record<string, string> = {
+  'finanças': 'Finance',
+  'produto': 'Product',
+  'engenharia': 'Engineering',
+  'design': 'Design',
+  'rh': 'HR',
+  'ti': 'IT',
+  'jurídico': 'Legal',
+  'marketing': 'Marketing',
+  'operações': 'Operations',
+  'vendas': 'Sales',
+  'suporte': 'Support',
+  'c-level': 'C-Level',
+};
+
+// Map Portuguese funding options to Apify-accepted values
+const fundingAliases: Record<string, string> = {
+  'seed': 'Seed',
+  'anjo': 'Angel',
+  'série a': 'Series A',
+  'série b': 'Series B',
+  'série c': 'Series C',
+  'série d': 'Series D',
+  'série e': 'Series E',
+  'série f': 'Series F',
+  'venture': 'Venture',
+  'dívida': 'Debt',
+  'conversível': 'Convertible',
+  'private equity': 'PE',
+  'outro': 'Other',
+};
+
 // Normalize location values to Apify-accepted format
 function normalizeLocation(location: string): string {
   const normalized = location.toLowerCase().trim();
   return locationAliases[normalized] || normalized;
+}
+
+// Normalize seniority values to Apify-accepted format
+function normalizeSeniority(value: string): string {
+  const normalized = value.toLowerCase().trim();
+  return seniorityAliases[normalized] || value;
+}
+
+// Normalize functional level values to Apify-accepted format
+function normalizeFunctional(value: string): string {
+  const normalized = value.toLowerCase().trim();
+  return functionalAliases[normalized] || value;
+}
+
+// Normalize funding values to Apify-accepted format
+function normalizeFunding(value: string): string {
+  const normalized = value.toLowerCase().trim();
+  return fundingAliases[normalized] || value;
 }
 
 serve(async (req) => {
@@ -120,8 +185,12 @@ serve(async (req) => {
     // People targeting
     if (filters.contactJobTitle?.length) apifyInput.contact_job_title = filters.contactJobTitle;
     if (filters.contactNotJobTitle?.length) apifyInput.contact_not_job_title = filters.contactNotJobTitle;
-    if (filters.seniorityLevel?.length) apifyInput.seniority_level = filters.seniorityLevel;
-    if (filters.functionalLevel?.length) apifyInput.functional_level = filters.functionalLevel;
+    if (filters.seniorityLevel?.length) {
+      apifyInput.seniority_level = filters.seniorityLevel.map((s: string) => normalizeSeniority(s));
+    }
+    if (filters.functionalLevel?.length) {
+      apifyInput.functional_level = filters.functionalLevel.map((f: string) => normalizeFunctional(f));
+    }
     
     // Location Include - normalize values
     if (filters.contactLocation?.length) {
@@ -145,7 +214,9 @@ serve(async (req) => {
     if (filters.companyNotKeywords?.length) apifyInput.company_not_keywords = filters.companyNotKeywords;
     if (filters.minRevenue) apifyInput.min_revenue = filters.minRevenue;
     if (filters.maxRevenue) apifyInput.max_revenue = filters.maxRevenue;
-    if (filters.funding?.length) apifyInput.funding = filters.funding;
+    if (filters.funding?.length) {
+      apifyInput.funding = filters.funding.map((f: string) => normalizeFunding(f));
+    }
     
     // General
     apifyInput.fetch_count = filters.fetchCount || 1000;
