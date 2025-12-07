@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import {
   Table,
   TableBody,
@@ -28,11 +28,18 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Tag } from "@/hooks/useTags";
+import { TagBadge } from "./TagBadge";
+import { TagSelector } from "./TagSelector";
 
 interface ContactsTableProps {
   contacts: LinkedInContact[];
   selectedContacts: string[];
   onSelectionChange: (ids: string[]) => void;
+  tags?: Tag[];
+  getTagsForContact?: (contactId: string) => Tag[];
+  onToggleContactTag?: (contactId: string, tagId: string) => void;
+  onCreateTag?: (name: string, color: string) => Promise<Tag | null>;
 }
 
 type SortField = keyof LinkedInContact;
@@ -42,6 +49,10 @@ export const ContactsTable = ({
   contacts,
   selectedContacts,
   onSelectionChange,
+  tags = [],
+  getTagsForContact,
+  onToggleContactTag,
+  onCreateTag,
 }: ContactsTableProps) => {
   const [sortField, setSortField] = useState<SortField>("fullName");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -71,24 +82,26 @@ export const ContactsTable = ({
     }
   };
 
-  const sortedContacts = [...contacts].sort((a, b) => {
-    const aValue = a[sortField];
-    const bValue = b[sortField];
+  const sortedContacts = useMemo(() => {
+    return [...contacts].sort((a, b) => {
+      const aValue = a[sortField];
+      const bValue = b[sortField];
 
-    if (aValue === undefined || aValue === null) return 1;
-    if (bValue === undefined || bValue === null) return -1;
+      if (aValue === undefined || aValue === null) return 1;
+      if (bValue === undefined || bValue === null) return -1;
 
-    let comparison = 0;
-    if (typeof aValue === "string" && typeof bValue === "string") {
-      comparison = aValue.localeCompare(bValue);
-    } else if (aValue < bValue) {
-      comparison = -1;
-    } else if (aValue > bValue) {
-      comparison = 1;
-    }
+      let comparison = 0;
+      if (typeof aValue === "string" && typeof bValue === "string") {
+        comparison = aValue.localeCompare(bValue);
+      } else if (aValue < bValue) {
+        comparison = -1;
+      } else if (aValue > bValue) {
+        comparison = 1;
+      }
 
-    return sortDirection === "asc" ? comparison : -comparison;
-  });
+      return sortDirection === "asc" ? comparison : -comparison;
+    });
+  }, [contacts, sortField, sortDirection]);
 
   const SortIcon = ({ field }: { field: SortField }) => {
     if (sortField !== field) {
@@ -210,168 +223,206 @@ export const ContactsTable = ({
                 </Button>
               </TableHead>
               <TableHead>Nível</TableHead>
+              {tags.length > 0 && <TableHead>Tags</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedContacts.map((contact) => (
-              <TableRow
-                key={contact.id}
-                className={
-                  selectedContacts.includes(contact.id) ? "bg-muted/30" : ""
-                }
-              >
-                <TableCell>
-                  <Checkbox
-                    checked={selectedContacts.includes(contact.id)}
-                    onCheckedChange={(checked) =>
-                      handleSelectOne(contact.id, checked as boolean)
-                    }
-                  />
-                </TableCell>
-                <TableCell>
-                  <span className="text-sm font-medium">{contact.firstName || "-"}</span>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{contact.fullName}</span>
-                      {contact.linkedin && (
-                        <a
-                          href={contact.linkedin}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:text-primary/80"
-                        >
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
+            {sortedContacts.map((contact) => {
+              const contactTags = getTagsForContact ? getTagsForContact(contact.id) : [];
+              const contactTagIds = contactTags.map((t) => t.id);
+
+              return (
+                <TableRow
+                  key={contact.id}
+                  className={
+                    selectedContacts.includes(contact.id) ? "bg-muted/30" : ""
+                  }
+                >
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedContacts.includes(contact.id)}
+                      onCheckedChange={(checked) =>
+                        handleSelectOne(contact.id, checked as boolean)
+                      }
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm font-medium">{contact.firstName || "-"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{contact.fullName}</span>
+                        {contact.linkedin && (
+                          <a
+                            href={contact.linkedin}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:text-primary/80"
+                          >
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        )}
+                      </div>
+                      {contact.headline && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                          {contact.headline}
+                        </span>
                       )}
                     </div>
-                    {contact.headline && (
-                      <span className="text-xs text-muted-foreground truncate max-w-[200px]">
-                        {contact.headline}
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span className="text-sm">{contact.jobTitle}</span>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-1">
-                      <Building2 className="h-3 w-3 text-muted-foreground" />
-                      <span className="text-sm font-medium">
-                        {contact.companyName || "-"}
-                      </span>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm">{contact.jobTitle}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-1">
+                        <Building2 className="h-3 w-3 text-muted-foreground" />
+                        <span className="text-sm font-medium">
+                          {contact.companyName || "-"}
+                        </span>
+                      </div>
+                      {contact.companyWebsite && (
+                        <a
+                          href={contact.companyWebsite}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-xs text-primary hover:underline flex items-center gap-1"
+                        >
+                          {contact.companyDomain}
+                          <ExternalLink className="h-2 w-2" />
+                        </a>
+                      )}
+                      {contact.companySize && (
+                        <span className="text-xs text-muted-foreground">
+                          {contact.companySize} funcionários
+                        </span>
+                      )}
                     </div>
-                    {contact.companyWebsite && (
-                      <a
-                        href={contact.companyWebsite}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-primary hover:underline flex items-center gap-1"
-                      >
-                        {contact.companyDomain}
-                        <ExternalLink className="h-2 w-2" />
-                      </a>
-                    )}
-                    {contact.companySize && (
-                      <span className="text-xs text-muted-foreground">
-                        {contact.companySize} funcionários
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {contact.email ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={`mailto:${contact.email}`}
-                          className="flex items-center gap-1 text-xs text-primary hover:underline"
-                        >
-                          <Mail className="h-3 w-3" />
-                          <span className="truncate max-w-[140px]">
-                            {contact.email}
-                          </span>
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent>{contact.email}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  {contact.personalEmail ? (
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={`mailto:${contact.personalEmail}`}
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                        >
-                          <User className="h-3 w-3" />
-                          <span className="truncate max-w-[140px]">
-                            {contact.personalEmail}
-                          </span>
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent>{contact.personalEmail}</TooltipContent>
-                    </Tooltip>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">-</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-col gap-1">
-                    {contact.mobileNumber && (
-                      <a
-                        href={`tel:${contact.mobileNumber}`}
-                        className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                      >
-                        <Phone className="h-3 w-3" />
-                        <span className="truncate max-w-[100px]">{contact.mobileNumber}</span>
-                      </a>
-                    )}
-                    {contact.companyPhone && (
+                  </TableCell>
+                  <TableCell>
+                    {contact.email ? (
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <a
-                            href={`tel:${contact.companyPhone}`}
-                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            href={`mailto:${contact.email}`}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline"
                           >
-                            <Building2 className="h-3 w-3" />
-                            <span className="truncate max-w-[100px]">{contact.companyPhone}</span>
+                            <Mail className="h-3 w-3" />
+                            <span className="truncate max-w-[140px]">
+                              {contact.email}
+                            </span>
                           </a>
                         </TooltipTrigger>
-                        <TooltipContent>Empresa: {contact.companyPhone}</TooltipContent>
+                        <TooltipContent>{contact.email}</TooltipContent>
                       </Tooltip>
-                    )}
-                    {!contact.mobileNumber && !contact.companyPhone && (
+                    ) : (
                       <span className="text-xs text-muted-foreground">-</span>
                     )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span className="text-sm">{contact.industry || "-"}</span>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1 text-sm">
-                    <MapPin className="h-3 w-3 text-muted-foreground" />
-                    {[contact.city, contact.state, contact.country]
-                      .filter(Boolean)
-                      .join(", ") || "-"}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {contact.seniorityLevel && (
-                    <Badge variant={getSeniorityBadgeVariant(contact.seniorityLevel)}>
-                      {contact.seniorityLevel}
-                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {contact.personalEmail ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={`mailto:${contact.personalEmail}`}
+                            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                          >
+                            <User className="h-3 w-3" />
+                            <span className="truncate max-w-[140px]">
+                              {contact.personalEmail}
+                            </span>
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent>{contact.personalEmail}</TooltipContent>
+                      </Tooltip>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-col gap-1">
+                      {contact.mobileNumber && (
+                        <a
+                          href={`tel:${contact.mobileNumber}`}
+                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                        >
+                          <Phone className="h-3 w-3" />
+                          <span className="truncate max-w-[100px]">{contact.mobileNumber}</span>
+                        </a>
+                      )}
+                      {contact.companyPhone && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <a
+                              href={`tel:${contact.companyPhone}`}
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                            >
+                              <Building2 className="h-3 w-3" />
+                              <span className="truncate max-w-[100px]">{contact.companyPhone}</span>
+                            </a>
+                          </TooltipTrigger>
+                          <TooltipContent>Empresa: {contact.companyPhone}</TooltipContent>
+                        </Tooltip>
+                      )}
+                      {!contact.mobileNumber && !contact.companyPhone && (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <span className="text-sm">{contact.industry || "-"}</span>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1 text-sm">
+                      <MapPin className="h-3 w-3 text-muted-foreground" />
+                      {[contact.city, contact.state, contact.country]
+                        .filter(Boolean)
+                        .join(", ") || "-"}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {contact.seniorityLevel && (
+                      <Badge variant={getSeniorityBadgeVariant(contact.seniorityLevel)}>
+                        {contact.seniorityLevel}
+                      </Badge>
+                    )}
+                  </TableCell>
+                  {tags.length > 0 && (
+                    <TableCell>
+                      <div className="flex items-center gap-1 flex-wrap">
+                        {contactTags.slice(0, 2).map((tag) => (
+                          <TagBadge
+                            key={tag.id}
+                            tag={tag}
+                            size="sm"
+                            onRemove={
+                              onToggleContactTag
+                                ? () => onToggleContactTag(contact.id, tag.id)
+                                : undefined
+                            }
+                          />
+                        ))}
+                        {contactTags.length > 2 && (
+                          <span className="text-xs text-muted-foreground">
+                            +{contactTags.length - 2}
+                          </span>
+                        )}
+                        {onToggleContactTag && (
+                          <TagSelector
+                            tags={tags}
+                            selectedTagIds={contactTagIds}
+                            onToggleTag={(tagId) => onToggleContactTag(contact.id, tagId)}
+                            onCreateTag={onCreateTag}
+                            size="sm"
+                          />
+                        )}
+                      </div>
+                    </TableCell>
                   )}
-                </TableCell>
-              </TableRow>
-            ))}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
