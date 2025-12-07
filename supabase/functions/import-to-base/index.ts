@@ -61,7 +61,7 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     
-    const { runIds, baseId, baseName } = await req.json();
+    const { runIds, baseId, baseName, skipExisting } = await req.json();
     
     if (!runIds || !Array.isArray(runIds) || runIds.length === 0) {
       throw new Error('runIds array is required');
@@ -86,9 +86,29 @@ serve(async (req) => {
       throw new Error('baseId or baseName is required');
     }
 
+    // Get existing emails/linkedin URLs to skip duplicates if requested
+    let existingEmails = new Set<string>();
+    let existingLinkedins = new Set<string>();
+    
+    if (skipExisting) {
+      const { data: existingContacts } = await supabase
+        .from('contacts')
+        .select('email, linkedin_url')
+        .eq('base_id', targetBaseId);
+      
+      if (existingContacts) {
+        existingContacts.forEach(c => {
+          if (c.email) existingEmails.add(c.email.toLowerCase());
+          if (c.linkedin_url) existingLinkedins.add(c.linkedin_url.toLowerCase());
+        });
+      }
+      console.log(`Found ${existingEmails.size} existing emails, ${existingLinkedins.size} existing linkedins`);
+    }
+
     let totalAdded = 0;
     let totalDuplicates = 0;
     const errors: string[] = [];
+    const BATCH_SIZE = 500;
 
     for (const runId of runIds) {
       try {
@@ -129,9 +149,26 @@ serve(async (req) => {
         const items: ApifyDatasetItem[] = await datasetResponse.json();
         console.log(`Got ${items.length} items from dataset ${datasetId}`);
 
-        // Insert contacts
+        // Prepare contacts for batch insert
+        const contactsToInsert = [];
+        
         for (const item of items) {
-          const contactData = {
+          // Skip duplicates if skipExisting is true
+          if (skipExisting) {
+            const email = item.email?.toLowerCase();
+            const linkedin = item.linkedin?.toLowerCase();
+            
+            if ((email && existingEmails.has(email)) || (linkedin && existingLinkedins.has(linkedin))) {
+              totalDuplicates++;
+              continue;
+            }
+            
+            // Add to tracking sets
+            if (email) existingEmails.add(email);
+            if (linkedin) existingLinkedins.add(linkedin);
+          }
+          
+          contactsToInsert.push({
             base_id: targetBaseId,
             first_name: item.first_name || null,
             last_name: item.last_name || null,
@@ -150,24 +187,44 @@ serve(async (req) => {
             country: item.country || null,
             seniority_level: item.seniority_level || null,
             full_data: JSON.parse(JSON.stringify(item)),
-          };
+          });
+        }
 
-          const { error: insertError } = await supabase
+        // Batch insert
+        console.log(`Inserting ${contactsToInsert.length} contacts in batches of ${BATCH_SIZE}`);
+        
+        for (let i = 0; i < contactsToInsert.length; i += BATCH_SIZE) {
+          const batch = contactsToInsert.slice(i, i + BATCH_SIZE);
+          
+          const { error: insertError, data: insertedData } = await supabase
             .from('contacts')
-            .insert([contactData]);
+            .insert(batch)
+            .select('id');
 
           if (insertError) {
-            if (insertError.code === '23505') {
-              totalDuplicates++;
-            } else {
-              console.error('Insert error:', insertError);
+            console.error(`Batch ${Math.floor(i / BATCH_SIZE) + 1} error:`, insertError);
+            // Try inserting one by one for this batch to identify problem rows
+            for (const contact of batch) {
+              const { error: singleError } = await supabase
+                .from('contacts')
+                .insert([contact]);
+              
+              if (singleError) {
+                if (singleError.code === '23505') {
+                  totalDuplicates++;
+                }
+              } else {
+                totalAdded++;
+              }
             }
           } else {
-            totalAdded++;
+            totalAdded += insertedData?.length || batch.length;
           }
+          
+          console.log(`Batch ${Math.floor(i / BATCH_SIZE) + 1}: inserted ${batch.length} contacts (total: ${totalAdded})`);
         }
         
-        console.log(`Run ${runId}: Added ${items.length} contacts`);
+        console.log(`Run ${runId}: Added ${totalAdded} contacts, ${totalDuplicates} duplicates`);
       } catch (runError) {
         const msg = runError instanceof Error ? runError.message : 'Unknown error';
         errors.push(`Run ${runId}: ${msg}`);
