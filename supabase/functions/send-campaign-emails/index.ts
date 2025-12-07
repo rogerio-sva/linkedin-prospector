@@ -12,10 +12,18 @@ const corsHeaders = {
 interface EmailRequest {
   campaignId?: string;
   templateId: string;
-  baseId: string;
+  baseId?: string;
   fromEmail: string;
   fromName: string;
+  replyTo?: string;
   contactIds?: string[]; // Optional: specific contacts, otherwise all from base
+  // For direct test send without base
+  testRecipient?: {
+    email: string;
+    name: string;
+  };
+  testSubject?: string;
+  testBody?: string;
 }
 
 interface Contact {
@@ -73,13 +81,50 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { templateId, baseId, fromEmail, fromName, contactIds, campaignId }: EmailRequest = await req.json();
+    const { templateId, baseId, fromEmail, fromName, replyTo, contactIds, campaignId, testRecipient, testSubject, testBody }: EmailRequest = await req.json();
 
-    console.log("Starting campaign email send:", { templateId, baseId, fromEmail, fromName, contactIdsCount: contactIds ? contactIds.length : 0 });
+    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, testRecipient });
 
     // Validate required fields
-    if (!templateId || !baseId || !fromEmail || !fromName) {
-      throw new Error("Campos obrigatórios: templateId, baseId, fromEmail, fromName");
+    if (!fromEmail || !fromName) {
+      throw new Error("Campos obrigatórios: fromEmail, fromName");
+    }
+
+    // Handle direct test send
+    if (testRecipient && testSubject && testBody) {
+      console.log(`Sending test email to ${testRecipient.email}...`);
+      
+      const htmlBody = testBody
+        .split("\n")
+        .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
+        .join("");
+
+      const emailResponse = await resend.emails.send({
+        from: `${fromName} <${fromEmail}>`,
+        to: [testRecipient.email],
+        reply_to: replyTo || fromEmail,
+        subject: testSubject,
+        html: htmlBody,
+      });
+
+      console.log("Test email sent:", emailResponse);
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          testSend: true,
+          resendId: emailResponse.data?.id,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+
+    // For campaign sends, require templateId and baseId
+    if (!templateId || !baseId) {
+      throw new Error("Campos obrigatórios para campanha: templateId, baseId");
     }
 
     // Fetch template
@@ -182,6 +227,7 @@ serve(async (req: Request): Promise<Response> => {
         const emailResponse = await resend.emails.send({
           from: `${fromName} <${fromEmail}>`,
           to: [recipientEmail],
+          reply_to: replyTo || fromEmail,
           subject: subject,
           html: htmlBody,
         });
