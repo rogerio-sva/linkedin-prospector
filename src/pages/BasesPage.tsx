@@ -177,9 +177,11 @@ const BasesPage = () => {
                               <Users className="h-3 w-3 mr-1" />
                               {base.contact_count || 0}
                             </Badge>
-                            <span className="text-xs text-muted-foreground">
-                              {format(new Date(base.created_at), "dd/MM/yy", { locale: ptBR })}
-                            </span>
+                            {base.created_at && (
+                              <span className="text-xs text-muted-foreground">
+                                {format(new Date(base.created_at), "dd/MM/yy", { locale: ptBR })}
+                              </span>
+                            )}
                           </div>
                         </div>
                         <Button
