@@ -50,13 +50,24 @@ export const SendCampaignDialog = ({
   const [fromName, setFromName] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [sendToSelected, setSendToSelected] = useState(selectedContacts.length > 0);
+  const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const selectedBase = bases.find((b) => b.id === selectedSendBaseId);
 
-  const contactsWithEmail = sendToSelected
-    ? contacts.filter((c) => selectedContacts.includes(c.id) && (c.email || c.personalEmail))
-    : contacts.filter((c) => c.email || c.personalEmail);
+  const getContactsWithEmail = () => {
+    const baseContacts = sendToSelected
+      ? contacts.filter((c) => selectedContacts.includes(c.id))
+      : contacts;
+    
+    return baseContacts.filter((c) => {
+      if (emailType === "personal") return c.personalEmail;
+      if (emailType === "corporate") return c.email;
+      return c.email || c.personalEmail;
+    });
+  };
+
+  const contactsWithEmail = getContactsWithEmail();
 
   const handleSend = async () => {
     if (!selectedTemplateId || !selectedSendBaseId || !fromEmail.trim() || !fromName.trim()) {
@@ -77,6 +88,7 @@ export const SendCampaignDialog = ({
         baseId: selectedSendBaseId,
         fromEmail: fromEmail.trim(),
         fromName: fromName.trim(),
+        emailType: emailType,
       };
 
       if (sendToSelected && selectedContacts.length > 0) {
@@ -167,6 +179,41 @@ export const SendCampaignDialog = ({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+
+          {/* Email Type Selection */}
+          <div className="space-y-2">
+            <Label>Tipo de Email para Envio *</Label>
+            <Select value={emailType} onValueChange={(v: "personal" | "corporate" | "both") => setEmailType(v)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="personal">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    <span>Email Pessoal</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="corporate">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    <span>Email Corporativo</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="both">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    <span>Ambos (prioridade pessoal)</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {emailType === "both" 
+                ? "Envia para email pessoal, ou corporativo se não tiver pessoal."
+                : `Envia apenas para contatos com email ${emailType === "personal" ? "pessoal" : "corporativo"}.`}
+            </p>
           </div>
 
           {/* Send to selected or all */}
