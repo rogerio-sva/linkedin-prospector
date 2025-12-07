@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { FolderPlus, Send, Trash2, Users } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { FolderPlus, Send, Trash2, Users, Settings } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ContactsTable } from "@/components/ContactsTable";
@@ -7,8 +7,12 @@ import { ExportMenu } from "@/components/ExportMenu";
 import { ContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { SendCampaignDialog } from "@/components/SendCampaignDialog";
+import { BulkTagActions } from "@/components/BulkTagActions";
+import { TagFilterDropdown } from "@/components/TagFilterDropdown";
+import { ManageTagsDialog } from "@/components/ManageTagsDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
+import { useTags } from "@/hooks/useTags";
 import { LinkedInContact } from "@/types/contact";
 import { toast } from "sonner";
 import {
@@ -40,21 +44,52 @@ const initialContactFilters: ContactFiltersState = {
 const BasesPage = () => {
   const { bases, createBase, deleteBase, loadBaseContacts } = useBases();
   const { templates } = useEmailTemplates();
+  const {
+    tags,
+    getTagsForContact,
+    addTagToContact,
+    removeTagFromContact,
+    addTagToContacts,
+    removeTagFromContacts,
+    createTag,
+    updateTag,
+    deleteTag,
+    refreshContactTags,
+  } = useTags();
   
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<LinkedInContact[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [contactFilters, setContactFilters] = useState<ContactFiltersState>(initialContactFilters);
+  const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
   
   const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [baseToDelete, setBaseToDelete] = useState<string | null>(null);
   const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
+  const [manageTagsDialogOpen, setManageTagsDialogOpen] = useState(false);
 
-  const filteredContacts = useMemo(
-    () => filterContacts(contacts, contactFilters),
-    [contacts, contactFilters]
-  );
+  // Load contact tags when contacts change
+  useEffect(() => {
+    if (contacts.length > 0) {
+      const contactIds = contacts.map((c) => c.id);
+      refreshContactTags(contactIds);
+    }
+  }, [contacts]);
+
+  const filteredContacts = useMemo(() => {
+    let result = filterContacts(contacts, contactFilters);
+    
+    // Filter by tags if any selected
+    if (tagFilterIds.length > 0) {
+      result = result.filter((contact) => {
+        const contactTags = getTagsForContact(contact.id);
+        return tagFilterIds.some((tagId) => contactTags.some((t) => t.id === tagId));
+      });
+    }
+    
+    return result;
+  }, [contacts, contactFilters, tagFilterIds, getTagsForContact]);
 
   const selectedBase = bases.find(b => b.id === selectedBaseId);
 
@@ -64,6 +99,24 @@ const BasesPage = () => {
     setContacts(baseContacts);
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
+    setTagFilterIds([]);
+  };
+
+  const handleToggleContactTag = async (contactId: string, tagId: string) => {
+    const contactTags = getTagsForContact(contactId);
+    const hasTag = contactTags.some((t) => t.id === tagId);
+
+    if (hasTag) {
+      await removeTagFromContact(contactId, tagId);
+    } else {
+      await addTagToContact(contactId, tagId);
+    }
+  };
+
+  const handleToggleTagFilter = (tagId: string) => {
+    setTagFilterIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
   };
 
   const handleCreateBase = async (name: string, description: string) => {
@@ -124,16 +177,32 @@ const BasesPage = () => {
         selectedBaseId={selectedBaseId}
       />
 
+      {/* Manage Tags Dialog */}
+      <ManageTagsDialog
+        open={manageTagsDialogOpen}
+        onOpenChange={setManageTagsDialogOpen}
+        tags={tags}
+        onCreateTag={createTag}
+        onUpdateTag={updateTag}
+        onDeleteTag={deleteTag}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-semibold text-foreground">Minhas Bases</h1>
           <p className="text-sm text-muted-foreground">Gerencie suas bases de contatos</p>
         </div>
-        <Button onClick={() => setCreateBaseDialogOpen(true)}>
-          <FolderPlus className="h-4 w-4 mr-2" />
-          Nova Base
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setManageTagsDialogOpen(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            Tags
+          </Button>
+          <Button onClick={() => setCreateBaseDialogOpen(true)}>
+            <FolderPlus className="h-4 w-4 mr-2" />
+            Nova Base
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -236,6 +305,25 @@ const BasesPage = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
+                    {contacts.length > 0 && (
+                      <>
+                        {/* Tag filter */}
+                        <TagFilterDropdown
+                          tags={tags}
+                          selectedTagIds={tagFilterIds}
+                          onToggleTag={handleToggleTagFilter}
+                          onClearFilters={() => setTagFilterIds([])}
+                        />
+                        
+                        {/* Bulk tag actions */}
+                        <BulkTagActions
+                          tags={tags}
+                          selectedContactIds={selectedContacts}
+                          onAddTag={addTagToContacts}
+                          onRemoveTag={removeTagFromContacts}
+                        />
+                      </>
+                    )}
                     {templates.length > 0 && contacts.length > 0 && (
                       <Button
                         size="sm"
@@ -275,6 +363,10 @@ const BasesPage = () => {
                   contacts={filteredContacts}
                   selectedContacts={selectedContacts}
                   onSelectionChange={setSelectedContacts}
+                  tags={tags}
+                  getTagsForContact={getTagsForContact}
+                  onToggleContactTag={handleToggleContactTag}
+                  onCreateTag={createTag}
                 />
               </>
             )}
