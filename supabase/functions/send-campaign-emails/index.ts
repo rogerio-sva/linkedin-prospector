@@ -16,6 +16,7 @@ interface EmailRequest {
   fromEmail: string;
   fromName: string;
   replyTo?: string;
+  emailType?: "personal" | "corporate" | "both"; // Which email field to use
   contactIds?: string[]; // Optional: specific contacts, otherwise all from base
   // For direct test send without base
   testRecipient?: {
@@ -81,9 +82,9 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { templateId, baseId, fromEmail, fromName, replyTo, contactIds, campaignId, testRecipient, testSubject, testBody }: EmailRequest = await req.json();
+    const { templateId, baseId, fromEmail, fromName, replyTo, emailType = "personal", contactIds, campaignId, testRecipient, testSubject, testBody }: EmailRequest = await req.json();
 
-    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, testRecipient });
+    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, testRecipient });
 
     // Validate required fields
     if (!fromEmail || !fromName) {
@@ -164,14 +165,18 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`Found ${contacts.length} contacts to send emails`);
 
-    // Filter contacts with valid emails
-    const contactsWithEmail = contacts.filter((c: Contact) => c.email || c.personal_email);
+    // Filter contacts based on email type preference
+    const contactsWithEmail = contacts.filter((c: Contact) => {
+      if (emailType === "personal") return c.personal_email;
+      if (emailType === "corporate") return c.email;
+      return c.email || c.personal_email; // "both" - at least one email
+    });
 
     if (contactsWithEmail.length === 0) {
-      throw new Error("Nenhum contato com email válido encontrado");
+      throw new Error("Nenhum contato com email válido encontrado para o tipo selecionado");
     }
 
-    console.log(`${contactsWithEmail.length} contacts have valid emails`);
+    console.log(`${contactsWithEmail.length} contacts have valid emails for type: ${emailType}`);
 
     // Create or update campaign
     let activeCampaignId = campaignId;
@@ -210,7 +215,16 @@ serve(async (req: Request): Promise<Response> => {
     };
 
     for (const contact of contactsWithEmail) {
-      const recipientEmail = contact.email || contact.personal_email;
+      // Select email based on type preference (personal first for "both")
+      let recipientEmail: string;
+      if (emailType === "personal") {
+        recipientEmail = contact.personal_email!;
+      } else if (emailType === "corporate") {
+        recipientEmail = contact.email!;
+      } else {
+        // "both" - prioritize personal email
+        recipientEmail = contact.personal_email || contact.email!;
+      }
       const recipientName = contact.full_name || contact.first_name || "Contato";
       
       try {
