@@ -172,11 +172,21 @@ export type Database = {
       email_sends: {
         Row: {
           body: string
+          bounce_message: string | null
+          bounce_type: string | null
+          bounced_at: string | null
           campaign_id: string | null
+          clicked_at: string | null
+          clicked_count: number | null
+          clicked_links: Json | null
+          complained_at: string | null
           contact_id: string
           created_at: string
+          delivered_at: string | null
           error_message: string | null
           id: string
+          opened_at: string | null
+          opened_count: number | null
           recipient_email: string
           recipient_name: string | null
           resend_id: string | null
@@ -186,11 +196,21 @@ export type Database = {
         }
         Insert: {
           body: string
+          bounce_message?: string | null
+          bounce_type?: string | null
+          bounced_at?: string | null
           campaign_id?: string | null
+          clicked_at?: string | null
+          clicked_count?: number | null
+          clicked_links?: Json | null
+          complained_at?: string | null
           contact_id: string
           created_at?: string
+          delivered_at?: string | null
           error_message?: string | null
           id?: string
+          opened_at?: string | null
+          opened_count?: number | null
           recipient_email: string
           recipient_name?: string | null
           resend_id?: string | null
@@ -200,11 +220,21 @@ export type Database = {
         }
         Update: {
           body?: string
+          bounce_message?: string | null
+          bounce_type?: string | null
+          bounced_at?: string | null
           campaign_id?: string | null
+          clicked_at?: string | null
+          clicked_count?: number | null
+          clicked_links?: Json | null
+          complained_at?: string | null
           contact_id?: string
           created_at?: string
+          delivered_at?: string | null
           error_message?: string | null
           id?: string
+          opened_at?: string | null
+          opened_count?: number | null
           recipient_email?: string
           recipient_name?: string | null
           resend_id?: string | null
