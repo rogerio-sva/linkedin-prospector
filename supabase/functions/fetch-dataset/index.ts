@@ -56,9 +56,31 @@ serve(async (req) => {
       throw new Error('APIFY_API_TOKEN is not configured');
     }
 
-    const { datasetId: providedDatasetId, runId, checkStatusOnly } = await req.json();
+    const { datasetId: providedDatasetId, runId: providedRunId, checkStatusOnly } = await req.json();
     
     let datasetId = providedDatasetId;
+    let runId = providedRunId;
+    
+    // If datasetId was provided but looks like it might be a runId, try to detect
+    // Run IDs and Dataset IDs are both alphanumeric but we can check by trying to fetch as run first
+    if (datasetId && !runId) {
+      // Try to fetch as a run first to see if it's a runId
+      const testRunUrl = `https://api.apify.com/v2/actor-runs/${datasetId}?token=${APIFY_API_TOKEN}`;
+      try {
+        const testResponse = await fetch(testRunUrl);
+        if (testResponse.ok) {
+          const testData = await testResponse.json();
+          if (testData.data?.defaultDatasetId) {
+            console.log(`Detected ${datasetId} as a runId, converting to datasetId`);
+            runId = datasetId;
+            datasetId = testData.data.defaultDatasetId;
+          }
+        }
+      } catch (e) {
+        // Ignore, treat as datasetId
+        console.log(`Treating ${datasetId} as datasetId (not a runId)`);
+      }
+    }
     
     // Check run status and get datasetId if only runId provided
     if (runId) {
