@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Linkedin, Settings, RefreshCw, Download, FolderPlus } from "lucide-react";
+import { Linkedin, Settings, RefreshCw, Download, FolderPlus, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SearchForm } from "@/components/SearchForm";
@@ -16,6 +16,7 @@ import { EmailTemplatesList } from "@/components/EmailTemplatesList";
 import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
 import { EditTemplateDialog } from "@/components/EditTemplateDialog";
 import { TemplatePreviewDialog } from "@/components/TemplatePreviewDialog";
+import { SendCampaignDialog } from "@/components/SendCampaignDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates, EmailTemplate } from "@/hooks/useEmailTemplates";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
@@ -94,6 +95,7 @@ const Index = () => {
   const [editTemplateDialogOpen, setEditTemplateDialogOpen] = useState(false);
   const [previewTemplateDialogOpen, setPreviewTemplateDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
 
   const handleEditTemplate = (template: EmailTemplate) => {
     setSelectedTemplate(template);
@@ -403,6 +405,17 @@ const Index = () => {
         renderTemplate={renderTemplate}
       />
 
+      {/* Send Campaign Dialog */}
+      <SendCampaignDialog
+        open={sendCampaignDialogOpen}
+        onOpenChange={setSendCampaignDialogOpen}
+        templates={templates}
+        bases={bases}
+        contacts={contacts}
+        selectedContacts={selectedContacts}
+        selectedBaseId={selectedBaseId}
+      />
+
       {/* Header */}
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
@@ -571,19 +584,35 @@ const Index = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   {contacts.length > 0 && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setAddToBaseDialogOpen(true)}
-                    >
-                      <FolderPlus className="h-4 w-4 mr-2" />
-                      Salvar em Base
-                      {selectedContacts.length > 0 && (
-                        <Badge variant="secondary" className="ml-2">
-                          {selectedContacts.length}
-                        </Badge>
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAddToBaseDialogOpen(true)}
+                      >
+                        <FolderPlus className="h-4 w-4 mr-2" />
+                        Salvar em Base
+                        {selectedContacts.length > 0 && (
+                          <Badge variant="secondary" className="ml-2">
+                            {selectedContacts.length}
+                          </Badge>
+                        )}
+                      </Button>
+                      {selectedBaseId && templates.length > 0 && (
+                        <Button
+                          size="sm"
+                          onClick={() => setSendCampaignDialogOpen(true)}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          Enviar Emails
+                          {selectedContacts.length > 0 && (
+                            <Badge variant="secondary" className="ml-2">
+                              {selectedContacts.length}
+                            </Badge>
+                          )}
+                        </Button>
                       )}
-                    </Button>
+                    </>
                   )}
                   <ExportMenu
                     contacts={filteredContacts}
