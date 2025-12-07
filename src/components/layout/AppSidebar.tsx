@@ -52,10 +52,10 @@ export function AppSidebar() {
           {!collapsed && (
             <div className="overflow-hidden">
               <h1 className="text-lg font-semibold text-sidebar-foreground truncate">
-                Leads Finder
+                Prospectador IA
               </h1>
               <p className="text-xs text-muted-foreground">
-                Powered by Apify
+                Desenvolvido por Dominions
               </p>
             </div>
           )}
