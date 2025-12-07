@@ -12,7 +12,12 @@ import { ContactFilters, ContactFiltersState, filterContacts } from "@/component
 import { BasesList, Base } from "@/components/BasesList";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { AddToBaseDialog } from "@/components/AddToBaseDialog";
+import { EmailTemplatesList } from "@/components/EmailTemplatesList";
+import { CreateTemplateDialog } from "@/components/CreateTemplateDialog";
+import { EditTemplateDialog } from "@/components/EditTemplateDialog";
+import { TemplatePreviewDialog } from "@/components/TemplatePreviewDialog";
 import { useBases } from "@/hooks/useBases";
+import { useEmailTemplates, EmailTemplate } from "@/hooks/useEmailTemplates";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -75,6 +80,30 @@ const Index = () => {
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
   const [addToBaseDialogOpen, setAddToBaseDialogOpen] = useState(false);
+
+  // Email Templates state
+  const {
+    templates,
+    isLoading: isLoadingTemplates,
+    createTemplate,
+    updateTemplate,
+    deleteTemplate,
+    renderTemplate,
+  } = useEmailTemplates();
+  const [createTemplateDialogOpen, setCreateTemplateDialogOpen] = useState(false);
+  const [editTemplateDialogOpen, setEditTemplateDialogOpen] = useState(false);
+  const [previewTemplateDialogOpen, setPreviewTemplateDialogOpen] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+
+  const handleEditTemplate = (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    setEditTemplateDialogOpen(true);
+  };
+
+  const handlePreviewTemplate = (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    setPreviewTemplateDialogOpen(true);
+  };
 
   // Filtered contacts
   const filteredContacts = useMemo(
@@ -350,6 +379,30 @@ const Index = () => {
         onCreateAndAdd={handleCreateAndAdd}
       />
 
+      {/* Create Template Dialog */}
+      <CreateTemplateDialog
+        open={createTemplateDialogOpen}
+        onOpenChange={setCreateTemplateDialogOpen}
+        onCreateTemplate={createTemplate}
+      />
+
+      {/* Edit Template Dialog */}
+      <EditTemplateDialog
+        open={editTemplateDialogOpen}
+        onOpenChange={setEditTemplateDialogOpen}
+        template={selectedTemplate}
+        onUpdateTemplate={updateTemplate}
+      />
+
+      {/* Template Preview Dialog */}
+      <TemplatePreviewDialog
+        open={previewTemplateDialogOpen}
+        onOpenChange={setPreviewTemplateDialogOpen}
+        template={selectedTemplate}
+        contacts={contacts}
+        renderTemplate={renderTemplate}
+      />
+
       {/* Header */}
       <header className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="container mx-auto px-4 py-4">
@@ -459,6 +512,16 @@ const Index = () => {
                 onLoadSearch={handleLoadSearch}
               />
             </Card>
+
+            {/* Email Templates */}
+            <EmailTemplatesList
+              templates={templates}
+              isLoading={isLoadingTemplates}
+              onCreateTemplate={() => setCreateTemplateDialogOpen(true)}
+              onEditTemplate={handleEditTemplate}
+              onDeleteTemplate={deleteTemplate}
+              onPreviewTemplate={handlePreviewTemplate}
+            />
           </div>
 
           {/* Main Content */}
