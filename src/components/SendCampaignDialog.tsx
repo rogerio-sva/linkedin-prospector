@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { AlertTriangle, Mail, Send, Users } from "lucide-react";
+import { AlertTriangle, Mail, Send, Users, Loader2 } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -40,22 +40,91 @@ export const SendCampaignDialog = ({
   onOpenChange,
   templates,
   bases,
-  contacts,
-  selectedContacts,
-  selectedBaseId,
+  contacts: initialContacts,
+  selectedContacts: initialSelectedContacts,
+  selectedBaseId: initialBaseId,
 }: SendCampaignDialogProps) => {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>("");
-  const [selectedSendBaseId, setSelectedSendBaseId] = useState<string>(selectedBaseId || "");
+  const [selectedSendBaseId, setSelectedSendBaseId] = useState<string>(initialBaseId || "");
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
   const [isSending, setIsSending] = useState(false);
-  const [sendToSelected, setSendToSelected] = useState(selectedContacts.length > 0);
+  const [sendToSelected, setSendToSelected] = useState(initialSelectedContacts.length > 0);
   const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
+  
+  // State for loaded contacts when base is selected in dialog
+  const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+
+  // Use initial contacts if provided, otherwise use loaded contacts
+  const contacts = initialContacts.length > 0 ? initialContacts : loadedContacts;
+  const selectedContacts = initialSelectedContacts;
 
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const selectedBase = bases.find((b) => b.id === selectedSendBaseId);
 
-  const getContactsWithEmail = () => {
+  // Load contacts when base is selected and no initial contacts provided
+  useEffect(() => {
+    const loadBaseContacts = async () => {
+      if (!selectedSendBaseId || initialContacts.length > 0) {
+        setLoadedContacts([]);
+        return;
+      }
+
+      setIsLoadingContacts(true);
+      try {
+        const { data, error } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("base_id", selectedSendBaseId);
+
+        if (error) throw error;
+
+        const mappedContacts: LinkedInContact[] = (data || []).map((contact) => ({
+          id: contact.id,
+          firstName: contact.first_name || "",
+          lastName: contact.last_name || "",
+          fullName: contact.full_name || "",
+          email: contact.email || undefined,
+          personalEmail: contact.personal_email || undefined,
+          mobileNumber: contact.mobile_number || undefined,
+          companyPhone: contact.company_phone || undefined,
+          jobTitle: contact.job_title || undefined,
+          companyName: contact.company_name || undefined,
+          companyWebsite: contact.company_website || undefined,
+          industry: contact.industry || undefined,
+          seniorityLevel: contact.seniority_level || undefined,
+          city: contact.city || undefined,
+          state: contact.state || undefined,
+          country: contact.country || undefined,
+          linkedin: contact.linkedin_url || undefined,
+          createdAt: new Date(contact.created_at),
+        }));
+
+        setLoadedContacts(mappedContacts);
+      } catch (error) {
+        console.error("Error loading base contacts:", error);
+        toast.error("Erro ao carregar contatos da base");
+      } finally {
+        setIsLoadingContacts(false);
+      }
+    };
+
+    loadBaseContacts();
+  }, [selectedSendBaseId, initialContacts.length]);
+
+  // Reset state when dialog opens/closes
+  useEffect(() => {
+    if (open) {
+      setSelectedSendBaseId(initialBaseId || "");
+      setSendToSelected(initialSelectedContacts.length > 0);
+      if (initialContacts.length === 0) {
+        setLoadedContacts([]);
+      }
+    }
+  }, [open, initialBaseId, initialSelectedContacts.length, initialContacts.length]);
+
+  const contactsWithEmail = useMemo(() => {
     const baseContacts = sendToSelected
       ? contacts.filter((c) => selectedContacts.includes(c.id))
       : contacts;
@@ -65,9 +134,7 @@ export const SendCampaignDialog = ({
       if (emailType === "corporate") return c.email;
       return c.email || c.personalEmail;
     });
-  };
-
-  const contactsWithEmail = getContactsWithEmail();
+  }, [contacts, selectedContacts, sendToSelected, emailType]);
 
   const handleSend = async () => {
     if (!selectedTemplateId || !selectedSendBaseId || !fromEmail.trim() || !fromName.trim()) {
@@ -271,10 +338,25 @@ export const SendCampaignDialog = ({
                 <strong>Base:</strong> {selectedBase?.name || "Não selecionada"}
               </p>
               <p>
+                <strong>Total de contatos:</strong>{" "}
+                {isLoadingContacts ? (
+                  <span className="inline-flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Carregando...
+                  </span>
+                ) : (
+                  <span className="text-foreground font-medium">{contacts.length}</span>
+                )}
+              </p>
+              <p>
                 <strong>Contatos com email:</strong>{" "}
-                <span className="text-foreground font-medium">
-                  {contactsWithEmail.length}
-                </span>
+                {isLoadingContacts ? (
+                  <span className="text-muted-foreground">-</span>
+                ) : (
+                  <span className="text-foreground font-medium">
+                    {contactsWithEmail.length}
+                  </span>
+                )}
               </p>
             </div>
           </Card>
