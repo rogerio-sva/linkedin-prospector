@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Download, RefreshCw, FolderPlus, Send } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
+import { Download, RefreshCw, FolderPlus, Send, Settings } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SearchForm } from "@/components/SearchForm";
@@ -13,8 +13,12 @@ import { BasesList, Base } from "@/components/BasesList";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { AddToBaseDialog } from "@/components/AddToBaseDialog";
 import { SendCampaignDialog } from "@/components/SendCampaignDialog";
+import { BulkTagActions } from "@/components/BulkTagActions";
+import { TagFilterDropdown } from "@/components/TagFilterDropdown";
+import { ManageTagsDialog } from "@/components/ManageTagsDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
+import { useTags } from "@/hooks/useTags";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -82,11 +86,61 @@ const LeadsPage = () => {
   const { templates } = useEmailTemplates();
   const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
 
-  // Filtered contacts
-  const filteredContacts = useMemo(
-    () => filterContacts(contacts, contactFilters),
-    [contacts, contactFilters]
-  );
+  // Tags state
+  const {
+    tags,
+    getTagsForContact,
+    addTagToContact,
+    removeTagFromContact,
+    addTagToContacts,
+    removeTagFromContacts,
+    createTag,
+    updateTag,
+    deleteTag,
+    refreshContactTags,
+  } = useTags();
+  const [manageTagsDialogOpen, setManageTagsDialogOpen] = useState(false);
+  const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
+
+  // Load contact tags when contacts change
+  useEffect(() => {
+    if (contacts.length > 0) {
+      const contactIds = contacts.map((c) => c.id);
+      refreshContactTags(contactIds);
+    }
+  }, [contacts]);
+
+  // Filtered contacts (by text filters and tags)
+  const filteredContacts = useMemo(() => {
+    let result = filterContacts(contacts, contactFilters);
+    
+    // Filter by tags if any selected
+    if (tagFilterIds.length > 0) {
+      result = result.filter((contact) => {
+        const contactTags = getTagsForContact(contact.id);
+        return tagFilterIds.some((tagId) => contactTags.some((t) => t.id === tagId));
+      });
+    }
+    
+    return result;
+  }, [contacts, contactFilters, tagFilterIds, getTagsForContact]);
+
+  const handleToggleContactTag = async (contactId: string, tagId: string) => {
+    const contactTags = getTagsForContact(contactId);
+    const hasTag = contactTags.some((t) => t.id === tagId);
+
+    if (hasTag) {
+      await removeTagFromContact(contactId, tagId);
+    } else {
+      await addTagToContact(contactId, tagId);
+    }
+  };
+
+  const handleToggleTagFilter = (tagId: string) => {
+    setTagFilterIds((prev) =>
+      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId]
+    );
+  };
 
   const handleSearch = async (filters: SearchFilters) => {
     setIsLoading(true);
@@ -131,6 +185,7 @@ const LeadsPage = () => {
     setContacts(fetchedContacts);
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
+    setTagFilterIds([]);
 
     const queryParts: string[] = [];
     if (activeSearch.filters.contactJobTitle?.length) {
@@ -196,6 +251,7 @@ const LeadsPage = () => {
       setSelectedContacts([]);
       setContactFilters(initialContactFilters);
       setSelectedBaseId(null);
+      setTagFilterIds([]);
 
       const newSearch: SearchQuery = {
         id: `search-${Date.now()}`,
@@ -225,6 +281,7 @@ const LeadsPage = () => {
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
     setSelectedBaseId(null);
+    setTagFilterIds([]);
     toast.success(`Busca "${search.query}" carregada`);
   };
 
@@ -234,6 +291,7 @@ const LeadsPage = () => {
     setContacts(baseContacts);
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
+    setTagFilterIds([]);
     toast.success(`Base "${base.name}" carregada com ${baseContacts.length} contatos`);
   };
 
@@ -276,6 +334,7 @@ const LeadsPage = () => {
     setActiveSearch(null);
     setContactFilters(initialContactFilters);
     setSelectedBaseId(null);
+    setTagFilterIds([]);
     toast.success("Dados limpos");
   };
 
@@ -363,6 +422,16 @@ const LeadsPage = () => {
         selectedBaseId={selectedBaseId}
       />
 
+      {/* Manage Tags Dialog */}
+      <ManageTagsDialog
+        open={manageTagsDialogOpen}
+        onOpenChange={setManageTagsDialogOpen}
+        tags={tags}
+        onCreateTag={createTag}
+        onUpdateTag={updateTag}
+        onDeleteTag={deleteTag}
+      />
+
       {/* Header Actions */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -370,6 +439,10 @@ const LeadsPage = () => {
           <p className="text-sm text-muted-foreground">Encontre contatos B2B qualificados</p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setManageTagsDialogOpen(true)}>
+            <Settings className="h-4 w-4 mr-2" />
+            Tags
+          </Button>
           <Dialog open={recoverDialogOpen} onOpenChange={setRecoverDialogOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" title="Recuperar busca">
@@ -506,6 +579,22 @@ const LeadsPage = () => {
               <div className="flex items-center gap-2">
                 {contacts.length > 0 && (
                   <>
+                    {/* Tag filter */}
+                    <TagFilterDropdown
+                      tags={tags}
+                      selectedTagIds={tagFilterIds}
+                      onToggleTag={handleToggleTagFilter}
+                      onClearFilters={() => setTagFilterIds([])}
+                    />
+                    
+                    {/* Bulk tag actions */}
+                    <BulkTagActions
+                      tags={tags}
+                      selectedContactIds={selectedContacts}
+                      onAddTag={addTagToContacts}
+                      onRemoveTag={removeTagFromContacts}
+                    />
+                    
                     <Button
                       variant="outline"
                       size="sm"
@@ -561,6 +650,10 @@ const LeadsPage = () => {
               contacts={filteredContacts}
               selectedContacts={selectedContacts}
               onSelectionChange={setSelectedContacts}
+              tags={tags}
+              getTagsForContact={getTagsForContact}
+              onToggleContactTag={handleToggleContactTag}
+              onCreateTag={createTag}
             />
           </Card>
         </div>
