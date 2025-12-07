@@ -8,6 +8,7 @@ const corsHeaders = {
 // Map of common location aliases to Apify-accepted values
 const locationAliases: Record<string, string> = {
   'brasil': 'brazil',
+  'brazil': 'brazil',
   'estados unidos': 'united states',
   'eua': 'united states',
   'usa': 'united states',
@@ -42,6 +43,30 @@ const locationAliases: Record<string, string> = {
   'coreia do sul': 'south korea',
   'emirados árabes': 'united arab emirates',
   'arábia saudita': 'saudi arabia',
+  // Brazilian states - must use exact Apify format
+  'rio de janeiro': 'state of rio de janeiro, brazil',
+  'rj': 'state of rio de janeiro, brazil',
+  'são paulo': 'state of são paulo, brazil',
+  'sp': 'state of são paulo, brazil',
+  'minas gerais': 'minas gerais, brazil',
+  'mg': 'minas gerais, brazil',
+  'bahia': 'bahia, brazil',
+  'ba': 'bahia, brazil',
+  'paraná': 'paraná, brazil',
+  'pr': 'paraná, brazil',
+  'rio grande do sul': 'state of rio grande do sul, brazil',
+  'rs': 'state of rio grande do sul, brazil',
+  'santa catarina': 'santa catarina, brazil',
+  'sc': 'santa catarina, brazil',
+  'pernambuco': 'pernambuco, brazil',
+  'pe': 'pernambuco, brazil',
+  'ceará': 'ceará, brazil',
+  'ce': 'ceará, brazil',
+  'goiás': 'goiás, brazil',
+  'go': 'goiás, brazil',
+  'distrito federal': 'federal district, brazil',
+  'df': 'federal district, brazil',
+  'brasília': 'federal district, brazil',
 };
 
 // Map Portuguese seniority levels to Apify-accepted values
