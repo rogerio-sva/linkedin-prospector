@@ -41,3 +41,6 @@ verify_jwt = false
 
 [functions.import-to-base]
 verify_jwt = false
+
+[functions.send-campaign-emails]
+verify_jwt = false
