@@ -183,6 +183,7 @@ export type Database = {
           contact_id: string
           created_at: string
           delivered_at: string | null
+          delivery_delayed_at: string | null
           error_message: string | null
           id: string
           opened_at: string | null
@@ -207,6 +208,7 @@ export type Database = {
           contact_id: string
           created_at?: string
           delivered_at?: string | null
+          delivery_delayed_at?: string | null
           error_message?: string | null
           id?: string
           opened_at?: string | null
@@ -231,6 +233,7 @@ export type Database = {
           contact_id?: string
           created_at?: string
           delivered_at?: string | null
+          delivery_delayed_at?: string | null
           error_message?: string | null
           id?: string
           opened_at?: string | null

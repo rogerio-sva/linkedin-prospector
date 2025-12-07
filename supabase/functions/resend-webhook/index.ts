@@ -123,7 +123,18 @@ serve(async (req: Request): Promise<Response> => {
         break;
 
       case "email.delivery_delayed":
+        updateData = {
+          delivery_delayed_at: now,
+        };
         console.log("Delivery delayed for:", emailId);
+        break;
+
+      case "email.failed":
+        updateData = {
+          status: "failed",
+          error_message: event.data.bounce?.message || "Email failed to send",
+        };
+        console.log("Email failed for:", emailId);
         break;
 
       default:
