@@ -39,10 +39,11 @@ const initialContactFilters: ContactFiltersState = {
   city: "",
   hasEmail: "",
   hasPhone: "",
+  isBounced: "",
 };
 
 const BasesPage = () => {
-  const { bases, createBase, deleteBase, loadBaseContacts } = useBases();
+  const { bases, createBase, deleteBase, loadBaseContacts, deleteContacts, getBouncedContactIds, refreshBases } = useBases();
   const { templates } = useEmailTemplates();
   const {
     tags,
@@ -62,12 +63,16 @@ const BasesPage = () => {
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [contactFilters, setContactFilters] = useState<ContactFiltersState>(initialContactFilters);
   const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
+  const [bouncedContactIds, setBouncedContactIds] = useState<string[]>([]);
   
   const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [baseToDelete, setBaseToDelete] = useState<string | null>(null);
   const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
   const [manageTagsDialogOpen, setManageTagsDialogOpen] = useState(false);
+  const [deleteContactsDialogOpen, setDeleteContactsDialogOpen] = useState(false);
+  const [contactsToDelete, setContactsToDelete] = useState<string[]>([]);
+  const [deleteMode, setDeleteMode] = useState<'selected' | 'filtered'>('selected');
 
   // Load contact tags when contacts change
   useEffect(() => {
@@ -78,7 +83,7 @@ const BasesPage = () => {
   }, [contacts]);
 
   const filteredContacts = useMemo(() => {
-    let result = filterContacts(contacts, contactFilters);
+    let result = filterContacts(contacts, contactFilters, bouncedContactIds);
     
     // Filter by tags if any selected
     if (tagFilterIds.length > 0) {
@@ -89,14 +94,18 @@ const BasesPage = () => {
     }
     
     return result;
-  }, [contacts, contactFilters, tagFilterIds, getTagsForContact]);
+  }, [contacts, contactFilters, tagFilterIds, getTagsForContact, bouncedContactIds]);
 
   const selectedBase = bases.find(b => b.id === selectedBaseId);
 
   const handleSelectBase = async (baseId: string) => {
     setSelectedBaseId(baseId);
-    const baseContacts = await loadBaseContacts(baseId);
+    const [baseContacts, bounced] = await Promise.all([
+      loadBaseContacts(baseId),
+      getBouncedContactIds(baseId)
+    ]);
     setContacts(baseContacts);
+    setBouncedContactIds(bounced);
     setSelectedContacts([]);
     setContactFilters(initialContactFilters);
     setTagFilterIds([]);
@@ -129,6 +138,7 @@ const BasesPage = () => {
     if (selectedBaseId === baseToDelete) {
       setSelectedBaseId(null);
       setContacts([]);
+      setBouncedContactIds([]);
     }
     setBaseToDelete(null);
     setDeleteDialogOpen(false);
@@ -137,6 +147,45 @@ const BasesPage = () => {
   const confirmDeleteBase = (baseId: string) => {
     setBaseToDelete(baseId);
     setDeleteDialogOpen(true);
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedContacts.length === 0) return;
+    setContactsToDelete(selectedContacts);
+    setDeleteMode('selected');
+    setDeleteContactsDialogOpen(true);
+  };
+
+  const handleDeleteFiltered = () => {
+    if (filteredContacts.length === 0) return;
+    setContactsToDelete(filteredContacts.map(c => c.id));
+    setDeleteMode('filtered');
+    setDeleteContactsDialogOpen(true);
+  };
+
+  const confirmDeleteContacts = async () => {
+    if (contactsToDelete.length === 0) return;
+    
+    const deletedCount = await deleteContacts(contactsToDelete);
+    
+    if (deletedCount > 0) {
+      toast.success(`${deletedCount} contato${deletedCount > 1 ? 's' : ''} excluído${deletedCount > 1 ? 's' : ''}`);
+      
+      // Reload contacts for the current base
+      if (selectedBaseId) {
+        const [baseContacts, bounced] = await Promise.all([
+          loadBaseContacts(selectedBaseId),
+          getBouncedContactIds(selectedBaseId)
+        ]);
+        setContacts(baseContacts);
+        setBouncedContactIds(bounced);
+      }
+      
+      setSelectedContacts([]);
+    }
+    
+    setContactsToDelete([]);
+    setDeleteContactsDialogOpen(false);
   };
 
   return (
@@ -154,6 +203,26 @@ const BasesPage = () => {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <AlertDialogAction onClick={handleDeleteBase} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Excluir
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Delete Contacts Confirmation Dialog */}
+      <AlertDialog open={deleteContactsDialogOpen} onOpenChange={setDeleteContactsDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir Contatos</AlertDialogTitle>
+            <AlertDialogDescription>
+              Tem certeza que deseja excluir {contactsToDelete.length} contato{contactsToDelete.length > 1 ? 's' : ''}
+              {deleteMode === 'filtered' ? ' filtrado' : ' selecionado'}{contactsToDelete.length > 1 ? 's' : ''}? 
+              Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDeleteContacts} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+              Excluir {contactsToDelete.length} contato{contactsToDelete.length > 1 ? 's' : ''}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -352,9 +421,10 @@ const BasesPage = () => {
                       filters={contactFilters}
                       onFiltersChange={setContactFilters}
                       selectedCount={selectedContacts.length}
-                      onDeleteSelected={() => {}}
-                      onDeleteFiltered={() => {}}
+                      onDeleteSelected={handleDeleteSelected}
+                      onDeleteFiltered={handleDeleteFiltered}
                       filteredCount={filteredContacts.length}
+                      bouncedContactIds={bouncedContactIds}
                     />
                   </div>
                 )}

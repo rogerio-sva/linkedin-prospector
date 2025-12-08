@@ -198,6 +198,55 @@ export function useBases() {
     }
   };
 
+  const deleteContacts = async (contactIds: string[]): Promise<number> => {
+    if (contactIds.length === 0) return 0;
+
+    try {
+      // Delete from contact_tags first (foreign key)
+      await supabase
+        .from('contact_tags')
+        .delete()
+        .in('contact_id', contactIds);
+
+      // Delete from contacts
+      const { error } = await supabase
+        .from('contacts')
+        .delete()
+        .in('id', contactIds);
+
+      if (error) throw error;
+
+      // Refresh bases to update counts
+      await fetchBases();
+
+      return contactIds.length;
+    } catch (error) {
+      console.error('Error deleting contacts:', error);
+      toast.error('Erro ao excluir contatos');
+      return 0;
+    }
+  };
+
+  const getBouncedContactIds = async (baseId: string): Promise<string[]> => {
+    try {
+      // Get all bounced email sends for contacts in this base
+      const { data, error } = await supabase
+        .from('email_sends')
+        .select('contact_id, contacts!inner(base_id)')
+        .eq('contacts.base_id', baseId)
+        .eq('status', 'bounced');
+
+      if (error) throw error;
+
+      // Return unique contact IDs
+      const contactIds = [...new Set((data || []).map(d => d.contact_id))];
+      return contactIds;
+    } catch (error) {
+      console.error('Error fetching bounced contacts:', error);
+      return [];
+    }
+  };
+
   return {
     bases,
     isLoading,
@@ -205,6 +254,8 @@ export function useBases() {
     deleteBase,
     addContactsToBase,
     loadBaseContacts,
+    deleteContacts,
+    getBouncedContactIds,
     refreshBases: fetchBases,
   };
 }

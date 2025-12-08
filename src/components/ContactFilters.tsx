@@ -20,6 +20,7 @@ export interface ContactFiltersState {
   city: string;
   hasEmail: string;
   hasPhone: string;
+  isBounced: string;
 }
 
 interface ContactFiltersProps {
@@ -30,6 +31,7 @@ interface ContactFiltersProps {
   onDeleteSelected: () => void;
   onDeleteFiltered: () => void;
   filteredCount: number;
+  bouncedContactIds?: string[];
 }
 
 const initialFilters: ContactFiltersState = {
@@ -40,6 +42,7 @@ const initialFilters: ContactFiltersState = {
   city: "",
   hasEmail: "",
   hasPhone: "",
+  isBounced: "",
 };
 
 export const ContactFilters = ({
@@ -50,6 +53,7 @@ export const ContactFilters = ({
   onDeleteSelected,
   onDeleteFiltered,
   filteredCount,
+  bouncedContactIds = [],
 }: ContactFiltersProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -196,6 +200,19 @@ export const ContactFilters = ({
               <SelectItem value="no">Sem telefone</SelectItem>
             </SelectContent>
           </Select>
+
+          {bouncedContactIds.length > 0 && (
+            <Select value={filters.isBounced || "all"} onValueChange={(v) => updateFilter("isBounced", v === "all" ? "" : v)}>
+              <SelectTrigger className="h-9 text-xs">
+                <SelectValue placeholder="Bounced" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Todos</SelectItem>
+                <SelectItem value="yes">Bounced ({bouncedContactIds.length})</SelectItem>
+                <SelectItem value="no">Não bounced</SelectItem>
+              </SelectContent>
+            </Select>
+          )}
         </div>
       )}
 
@@ -259,6 +276,15 @@ export const ContactFilters = ({
                   />
                 </Badge>
               )}
+              {filters.isBounced && (
+                <Badge variant="destructive" className="text-xs">
+                  {filters.isBounced === "yes" ? "Bounced" : "Não bounced"}
+                  <X
+                    className="h-3 w-3 ml-1 cursor-pointer"
+                    onClick={() => updateFilter("isBounced", "")}
+                  />
+                </Badge>
+              )}
               <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs">
                 Limpar filtros
               </Button>
@@ -299,7 +325,8 @@ export const ContactFilters = ({
 
 export const filterContacts = (
   contacts: LinkedInContact[],
-  filters: ContactFiltersState
+  filters: ContactFiltersState,
+  bouncedContactIds: string[] = []
 ): LinkedInContact[] => {
   return contacts.filter((contact) => {
     // Search filter
@@ -349,6 +376,14 @@ export const filterContacts = (
       return false;
     }
     if (filters.hasPhone === "no" && (contact.mobileNumber || contact.companyPhone)) {
+      return false;
+    }
+
+    // Bounced filter
+    if (filters.isBounced === "yes" && !bouncedContactIds.includes(contact.id)) {
+      return false;
+    }
+    if (filters.isBounced === "no" && bouncedContactIds.includes(contact.id)) {
       return false;
     }
 

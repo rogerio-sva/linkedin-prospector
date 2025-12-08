@@ -60,6 +60,7 @@ const initialContactFilters: ContactFiltersState = {
   city: "",
   hasEmail: "",
   hasPhone: "",
+  isBounced: "",
 };
 
 const LeadsPage = () => {
