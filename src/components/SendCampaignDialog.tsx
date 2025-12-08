@@ -206,7 +206,7 @@ export const SendCampaignDialog = ({
       }
 
       toast.success(
-        `Campanha enviada! ${data.results.sent} emails enviados, ${data.results.failed} falharam.`
+        `Campanha iniciada! ${data.totalRecipients} emails serão enviados em background. Acompanhe o progresso na lista de campanhas.`
       );
       onOpenChange(false);
     } catch (error: any) {

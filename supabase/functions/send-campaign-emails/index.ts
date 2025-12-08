@@ -16,9 +16,8 @@ interface EmailRequest {
   fromEmail: string;
   fromName: string;
   replyTo?: string;
-  emailType?: "personal" | "corporate" | "both"; // Which email field to use
-  contactIds?: string[]; // Optional: specific contacts, otherwise all from base
-  // For direct test send without base
+  emailType?: "personal" | "corporate" | "both";
+  contactIds?: string[];
   testRecipient?: {
     email: string;
     name: string;
@@ -71,8 +70,138 @@ function renderTemplate(template: Template, contact: Contact): { subject: string
   return { subject: renderedSubject, body: renderedBody };
 }
 
+// Background task to send emails
+async function sendEmailsInBackground(
+  supabase: any,
+  template: Template,
+  contactsWithEmail: Contact[],
+  campaignId: string,
+  fromEmail: string,
+  fromName: string,
+  replyTo: string,
+  emailType: string
+) {
+  console.log(`[Background] Starting to send ${contactsWithEmail.length} emails for campaign ${campaignId}`);
+  
+  const results = {
+    sent: 0,
+    failed: 0,
+    errors: [] as string[],
+  };
+
+  for (const contact of contactsWithEmail) {
+    let recipientEmail: string;
+    if (emailType === "personal") {
+      recipientEmail = contact.personal_email!;
+    } else if (emailType === "corporate") {
+      recipientEmail = contact.email!;
+    } else {
+      recipientEmail = contact.personal_email || contact.email!;
+    }
+    const recipientName = contact.full_name || contact.first_name || "Contato";
+    
+    try {
+      const { subject, body } = renderTemplate(template, contact);
+
+      const htmlBody = body
+        .split("\n")
+        .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
+        .join("");
+
+      console.log(`[Background] Sending email to ${recipientEmail}...`);
+
+      const emailResponse = await resend.emails.send({
+        from: `${fromName} <${fromEmail}>`,
+        to: [recipientEmail],
+        reply_to: replyTo || fromEmail,
+        subject: subject,
+        html: htmlBody,
+      });
+
+      console.log(`[Background] Email sent to ${recipientEmail}:`, emailResponse);
+
+      if (emailResponse.error) {
+        const errorName = (emailResponse.error as any).name;
+        const errorMessage = (emailResponse.error as any).message || "Erro desconhecido";
+        
+        console.error(`[Background] Resend API error for ${recipientEmail}:`, emailResponse.error);
+        
+        await supabase.from("email_sends").insert({
+          campaign_id: campaignId,
+          contact_id: contact.id,
+          recipient_email: recipientEmail,
+          recipient_name: recipientName,
+          subject: subject,
+          body: body,
+          status: "failed",
+          error_message: errorMessage,
+        });
+
+        results.failed++;
+        results.errors.push(`${recipientEmail}: ${errorMessage}`);
+
+        if (errorName === "daily_quota_exceeded") {
+          console.log("[Background] Daily quota exceeded, stopping campaign...");
+          break;
+        }
+
+        if (errorName === "rate_limit_exceeded") {
+          console.log("[Background] Rate limited, waiting 2 seconds...");
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+        }
+        
+        continue;
+      }
+
+      await supabase.from("email_sends").insert({
+        campaign_id: campaignId,
+        contact_id: contact.id,
+        recipient_email: recipientEmail,
+        recipient_name: recipientName,
+        subject: subject,
+        body: body,
+        status: "sent",
+        resend_id: emailResponse.data?.id || null,
+        sent_at: new Date().toISOString(),
+      });
+
+      results.sent++;
+    } catch (emailError: any) {
+      console.error(`[Background] Failed to send email to ${recipientEmail}:`, emailError);
+
+      await supabase.from("email_sends").insert({
+        campaign_id: campaignId,
+        contact_id: contact.id,
+        recipient_email: recipientEmail,
+        recipient_name: recipientName,
+        subject: template.subject,
+        body: template.body,
+        status: "failed",
+        error_message: emailError.message || "Erro desconhecido",
+      });
+
+      results.failed++;
+      results.errors.push(`${recipientEmail}: ${emailError.message}`);
+    }
+
+    // Delay of 550ms to respect Resend's 2 emails/second rate limit
+    await new Promise((resolve) => setTimeout(resolve, 550));
+  }
+
+  // Update campaign status
+  const finalStatus = results.failed === contactsWithEmail.length ? "failed" : "completed";
+  await supabase
+    .from("email_campaigns")
+    .update({ 
+      status: finalStatus, 
+      sent_at: new Date().toISOString() 
+    })
+    .eq("id", campaignId);
+
+  console.log(`[Background] Campaign ${campaignId} completed:`, results);
+}
+
 serve(async (req: Request): Promise<Response> => {
-  // Handle CORS preflight requests
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
@@ -86,12 +215,11 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, testRecipient });
 
-    // Validate required fields
     if (!fromEmail || !fromName) {
       throw new Error("Campos obrigatórios: fromEmail, fromName");
     }
 
-    // Handle direct test send
+    // Handle direct test send (synchronous - quick)
     if (testRecipient && testSubject && testBody) {
       console.log(`Sending test email to ${testRecipient.email}...`);
       
@@ -169,7 +297,7 @@ serve(async (req: Request): Promise<Response> => {
     const contactsWithEmail = contacts.filter((c: Contact) => {
       if (emailType === "personal") return c.personal_email;
       if (emailType === "corporate") return c.email;
-      return c.email || c.personal_email; // "both" - at least one email
+      return c.email || c.personal_email;
     });
 
     if (contactsWithEmail.length === 0) {
@@ -207,138 +335,30 @@ serve(async (req: Request): Promise<Response> => {
         .eq("id", activeCampaignId);
     }
 
-    // Send emails
-    const results = {
-      sent: 0,
-      failed: 0,
-      errors: [] as string[],
-    };
+    // Start background task to send emails
+    // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
+    EdgeRuntime.waitUntil(
+      sendEmailsInBackground(
+        supabase,
+        template,
+        contactsWithEmail,
+        activeCampaignId!,
+        fromEmail,
+        fromName,
+        replyTo || fromEmail,
+        emailType
+      )
+    );
 
-    for (const contact of contactsWithEmail) {
-      // Select email based on type preference (personal first for "both")
-      let recipientEmail: string;
-      if (emailType === "personal") {
-        recipientEmail = contact.personal_email!;
-      } else if (emailType === "corporate") {
-        recipientEmail = contact.email!;
-      } else {
-        // "both" - prioritize personal email
-        recipientEmail = contact.personal_email || contact.email!;
-      }
-      const recipientName = contact.full_name || contact.first_name || "Contato";
-      
-      try {
-        const { subject, body } = renderTemplate(template, contact);
-
-        // Convert plain text body to HTML
-        const htmlBody = body
-          .split("\n")
-          .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
-          .join("");
-
-        console.log(`Sending email to ${recipientEmail}...`);
-
-        const emailResponse = await resend.emails.send({
-          from: `${fromName} <${fromEmail}>`,
-          to: [recipientEmail],
-          reply_to: replyTo || fromEmail,
-          subject: subject,
-          html: htmlBody,
-        });
-
-        console.log(`Email sent to ${recipientEmail}:`, emailResponse);
-
-        // Check for rate limit or quota errors in response
-        if (emailResponse.error) {
-          const errorName = (emailResponse.error as any).name;
-          const errorMessage = (emailResponse.error as any).message || "Erro desconhecido";
-          
-          console.error(`Resend API error for ${recipientEmail}:`, emailResponse.error);
-          
-          // Record as failed
-          await supabase.from("email_sends").insert({
-            campaign_id: activeCampaignId,
-            contact_id: contact.id,
-            recipient_email: recipientEmail,
-            recipient_name: recipientName,
-            subject: subject,
-            body: body,
-            status: "failed",
-            error_message: errorMessage,
-          });
-
-          results.failed++;
-          results.errors.push(`${recipientEmail}: ${errorMessage}`);
-
-          // If daily quota exceeded, stop sending more emails
-          if (errorName === "daily_quota_exceeded") {
-            console.log("Daily quota exceeded, stopping campaign...");
-            break;
-          }
-
-          // If rate limited, wait longer before next attempt
-          if (errorName === "rate_limit_exceeded") {
-            console.log("Rate limited, waiting 2 seconds...");
-            await new Promise((resolve) => setTimeout(resolve, 2000));
-          }
-          
-          continue;
-        }
-
-        // Record successful send
-        await supabase.from("email_sends").insert({
-          campaign_id: activeCampaignId,
-          contact_id: contact.id,
-          recipient_email: recipientEmail,
-          recipient_name: recipientName,
-          subject: subject,
-          body: body,
-          status: "sent",
-          resend_id: emailResponse.data?.id || null,
-          sent_at: new Date().toISOString(),
-        });
-
-        results.sent++;
-      } catch (emailError: any) {
-        console.error(`Failed to send email to ${recipientEmail}:`, emailError);
-
-        // Record failed send
-        await supabase.from("email_sends").insert({
-          campaign_id: activeCampaignId,
-          contact_id: contact.id,
-          recipient_email: recipientEmail,
-          recipient_name: recipientName,
-          subject: template.subject,
-          body: template.body,
-          status: "failed",
-          error_message: emailError.message || "Erro desconhecido",
-        });
-
-        results.failed++;
-        results.errors.push(`${recipientEmail}: ${emailError.message}`);
-      }
-
-      // Delay of 550ms to respect Resend's 2 emails/second rate limit
-      await new Promise((resolve) => setTimeout(resolve, 550));
-    }
-
-    // Update campaign status
-    const finalStatus = results.failed === contactsWithEmail.length ? "failed" : "completed";
-    await supabase
-      .from("email_campaigns")
-      .update({ 
-        status: finalStatus, 
-        sent_at: new Date().toISOString() 
-      })
-      .eq("id", activeCampaignId);
-
-    console.log("Campaign completed:", results);
+    // Return immediately with campaign info
+    console.log(`Campaign ${activeCampaignId} started in background, returning response immediately`);
 
     return new Response(
       JSON.stringify({
         success: true,
         campaignId: activeCampaignId,
-        results,
+        message: "Campanha iniciada em background",
+        totalRecipients: contactsWithEmail.length,
       }),
       {
         status: 200,
