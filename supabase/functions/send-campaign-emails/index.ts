@@ -18,6 +18,7 @@ interface EmailRequest {
   replyTo?: string;
   emailType?: "personal" | "corporate" | "both";
   contactIds?: string[];
+  batchMode?: boolean; // If true, process synchronously and return results
   testRecipient?: {
     email: string;
     name: string;
@@ -70,8 +71,8 @@ function renderTemplate(template: Template, contact: Contact): { subject: string
   return { subject: renderedSubject, body: renderedBody };
 }
 
-// Background task to send emails
-async function sendEmailsInBackground(
+// Send emails synchronously (for batch mode)
+async function sendEmailsSynchronously(
   supabase: any,
   template: Template,
   contactsWithEmail: Contact[],
@@ -80,8 +81,8 @@ async function sendEmailsInBackground(
   fromName: string,
   replyTo: string,
   emailType: string
-) {
-  console.log(`[Background] Starting to send ${contactsWithEmail.length} emails for campaign ${campaignId}`);
+): Promise<{ sent: number; failed: number; errors: string[] }> {
+  console.log(`[Batch] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
   
   const results = {
     sent: 0,
@@ -108,7 +109,7 @@ async function sendEmailsInBackground(
         .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
         .join("");
 
-      console.log(`[Background] Sending email to ${recipientEmail}...`);
+      console.log(`[Batch] Sending email to ${recipientEmail}...`);
 
       const emailResponse = await resend.emails.send({
         from: `${fromName} <${fromEmail}>`,
@@ -118,13 +119,13 @@ async function sendEmailsInBackground(
         html: htmlBody,
       });
 
-      console.log(`[Background] Email sent to ${recipientEmail}:`, emailResponse);
+      console.log(`[Batch] Email sent to ${recipientEmail}:`, emailResponse);
 
       if (emailResponse.error) {
         const errorName = (emailResponse.error as any).name;
         const errorMessage = (emailResponse.error as any).message || "Erro desconhecido";
         
-        console.error(`[Background] Resend API error for ${recipientEmail}:`, emailResponse.error);
+        console.error(`[Batch] Resend API error for ${recipientEmail}:`, emailResponse.error);
         
         await supabase.from("email_sends").insert({
           campaign_id: campaignId,
@@ -141,12 +142,12 @@ async function sendEmailsInBackground(
         results.errors.push(`${recipientEmail}: ${errorMessage}`);
 
         if (errorName === "daily_quota_exceeded") {
-          console.log("[Background] Daily quota exceeded, stopping campaign...");
+          console.log("[Batch] Daily quota exceeded, stopping batch...");
           break;
         }
 
         if (errorName === "rate_limit_exceeded") {
-          console.log("[Background] Rate limited, waiting 2 seconds...");
+          console.log("[Batch] Rate limited, waiting 2 seconds...");
           await new Promise((resolve) => setTimeout(resolve, 2000));
         }
         
@@ -167,7 +168,7 @@ async function sendEmailsInBackground(
 
       results.sent++;
     } catch (emailError: any) {
-      console.error(`[Background] Failed to send email to ${recipientEmail}:`, emailError);
+      console.error(`[Batch] Failed to send email to ${recipientEmail}:`, emailError);
 
       await supabase.from("email_sends").insert({
         campaign_id: campaignId,
@@ -188,17 +189,8 @@ async function sendEmailsInBackground(
     await new Promise((resolve) => setTimeout(resolve, 550));
   }
 
-  // Update campaign status
-  const finalStatus = results.failed === contactsWithEmail.length ? "failed" : "completed";
-  await supabase
-    .from("email_campaigns")
-    .update({ 
-      status: finalStatus, 
-      sent_at: new Date().toISOString() 
-    })
-    .eq("id", campaignId);
-
-  console.log(`[Background] Campaign ${campaignId} completed:`, results);
+  console.log(`[Batch] Batch completed:`, results);
+  return results;
 }
 
 serve(async (req: Request): Promise<Response> => {
@@ -211,9 +203,22 @@ serve(async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { templateId, baseId, fromEmail, fromName, replyTo, emailType = "personal", contactIds, campaignId, testRecipient, testSubject, testBody }: EmailRequest = await req.json();
+    const { 
+      templateId, 
+      baseId, 
+      fromEmail, 
+      fromName, 
+      replyTo, 
+      emailType = "personal", 
+      contactIds, 
+      campaignId, 
+      batchMode = false,
+      testRecipient, 
+      testSubject, 
+      testBody 
+    }: EmailRequest = await req.json();
 
-    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, testRecipient });
+    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, batchMode, contactIdsCount: contactIds?.length, testRecipient });
 
     if (!fromEmail || !fromName) {
       throw new Error("Campos obrigatórios: fromEmail, fromName");
@@ -256,6 +261,11 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error("Campos obrigatórios para campanha: templateId, baseId");
     }
 
+    // For batch mode, contactIds is required
+    if (batchMode && (!contactIds || contactIds.length === 0)) {
+      throw new Error("Batch mode requires contactIds");
+    }
+
     // Fetch template
     const { data: template, error: templateError } = await supabase
       .from("email_templates")
@@ -270,7 +280,66 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("Template loaded:", template.name);
 
-    // Fetch contacts from base with pagination (Supabase defaults to 1000)
+    // Fetch contacts by IDs (batch mode)
+    if (batchMode && contactIds && contactIds.length > 0) {
+      // Fetch specific contacts by ID
+      const { data: contacts, error: contactsError } = await supabase
+        .from("contacts")
+        .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+        .in("id", contactIds);
+
+      if (contactsError) {
+        console.error("Contacts error:", contactsError);
+        throw new Error("Erro ao buscar contatos");
+      }
+
+      if (!contacts || contacts.length === 0) {
+        throw new Error("Nenhum contato encontrado");
+      }
+
+      console.log(`Found ${contacts.length} contacts for batch`);
+
+      // Filter contacts based on email type preference
+      const contactsWithEmail = contacts.filter((c: Contact) => {
+        if (emailType === "personal") return c.personal_email;
+        if (emailType === "corporate") return c.email;
+        return c.email || c.personal_email;
+      });
+
+      if (contactsWithEmail.length === 0) {
+        throw new Error("Nenhum contato com email válido encontrado para o tipo selecionado");
+      }
+
+      console.log(`${contactsWithEmail.length} contacts have valid emails for type: ${emailType}`);
+
+      // Process batch synchronously
+      const results = await sendEmailsSynchronously(
+        supabase,
+        template,
+        contactsWithEmail,
+        campaignId!,
+        fromEmail,
+        fromName,
+        replyTo || fromEmail,
+        emailType
+      );
+
+      return new Response(
+        JSON.stringify({
+          success: true,
+          batchMode: true,
+          sent: results.sent,
+          failed: results.failed,
+          errors: results.errors,
+        }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json", ...corsHeaders },
+        }
+      );
+    }
+
+    // Legacy mode: fetch all contacts from base (for backwards compatibility)
     let allContacts: Contact[] = [];
     let offset = 0;
     const pageSize = 1000;
@@ -351,29 +420,35 @@ serve(async (req: Request): Promise<Response> => {
         .eq("id", activeCampaignId);
     }
 
-    // Start background task to send emails
-    // @ts-ignore - EdgeRuntime is available in Supabase Edge Functions
-    EdgeRuntime.waitUntil(
-      sendEmailsInBackground(
-        supabase,
-        template,
-        contactsWithEmail,
-        activeCampaignId!,
-        fromEmail,
-        fromName,
-        replyTo || fromEmail,
-        emailType
-      )
+    // Process synchronously for legacy mode (small batches)
+    const results = await sendEmailsSynchronously(
+      supabase,
+      template,
+      contactsWithEmail,
+      activeCampaignId!,
+      fromEmail,
+      fromName,
+      replyTo || fromEmail,
+      emailType
     );
 
-    // Return immediately with campaign info
-    console.log(`Campaign ${activeCampaignId} started in background, returning response immediately`);
+    // Update campaign status
+    const finalStatus = results.failed === contactsWithEmail.length ? "failed" : "completed";
+    await supabase
+      .from("email_campaigns")
+      .update({ 
+        status: finalStatus, 
+        sent_at: new Date().toISOString() 
+      })
+      .eq("id", activeCampaignId);
 
     return new Response(
       JSON.stringify({
         success: true,
         campaignId: activeCampaignId,
-        message: "Campanha iniciada em background",
+        sent: results.sent,
+        failed: results.failed,
+        errors: results.errors,
         totalRecipients: contactsWithEmail.length,
       }),
       {

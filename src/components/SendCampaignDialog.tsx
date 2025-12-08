@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { AlertTriangle, Mail, Send, Users, Loader2 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
+import { AlertTriangle, Mail, Send, Users, Loader2, CheckCircle2, XCircle, Pause, Play } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -35,6 +36,19 @@ interface SendCampaignDialogProps {
   selectedBaseId: string | null;
 }
 
+interface BatchProgress {
+  currentBatch: number;
+  totalBatches: number;
+  sentEmails: number;
+  totalEmails: number;
+  failedEmails: number;
+  status: "idle" | "sending" | "paused" | "completed" | "error";
+  currentBatchStatus: string;
+  errors: string[];
+}
+
+const BATCH_SIZE = 350; // Safe batch size to avoid timeout
+
 export const SendCampaignDialog = ({
   open,
   onOpenChange,
@@ -48,7 +62,6 @@ export const SendCampaignDialog = ({
   const [selectedSendBaseId, setSelectedSendBaseId] = useState<string>(initialBaseId || "");
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
-  const [isSending, setIsSending] = useState(false);
   const [sendToSelected, setSendToSelected] = useState(initialSelectedContacts.length > 0);
   const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
   
@@ -56,6 +69,20 @@ export const SendCampaignDialog = ({
   const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   const [alreadySentCount, setAlreadySentCount] = useState(0);
+
+  // Batch sending state
+  const [batchProgress, setBatchProgress] = useState<BatchProgress>({
+    currentBatch: 0,
+    totalBatches: 0,
+    sentEmails: 0,
+    totalEmails: 0,
+    failedEmails: 0,
+    status: "idle",
+    currentBatchStatus: "",
+    errors: [],
+  });
+  const [isPaused, setIsPaused] = useState(false);
+  const [campaignId, setCampaignId] = useState<string | null>(null);
 
   // Use initial contacts if provided, otherwise use loaded contacts
   const contacts = initialContacts.length > 0 ? initialContacts : loadedContacts;
@@ -167,6 +194,19 @@ export const SendCampaignDialog = ({
       if (initialContacts.length === 0) {
         setLoadedContacts([]);
       }
+      // Reset batch progress
+      setBatchProgress({
+        currentBatch: 0,
+        totalBatches: 0,
+        sentEmails: 0,
+        totalEmails: 0,
+        failedEmails: 0,
+        status: "idle",
+        currentBatchStatus: "",
+        errors: [],
+      });
+      setIsPaused(false);
+      setCampaignId(null);
     }
   }, [open, initialBaseId, initialSelectedContacts.length, initialContacts.length]);
 
@@ -182,6 +222,15 @@ export const SendCampaignDialog = ({
     });
   }, [contacts, selectedContacts, sendToSelected, emailType]);
 
+  // Split contacts into batches
+  const batches = useMemo(() => {
+    const result: LinkedInContact[][] = [];
+    for (let i = 0; i < contactsWithEmail.length; i += BATCH_SIZE) {
+      result.push(contactsWithEmail.slice(i, i + BATCH_SIZE));
+    }
+    return result;
+  }, [contactsWithEmail]);
+
   const handleSend = async () => {
     if (!selectedTemplateId || !selectedSendBaseId || !fromEmail.trim() || !fromName.trim()) {
       toast.error("Preencha todos os campos obrigatórios");
@@ -193,47 +242,172 @@ export const SendCampaignDialog = ({
       return;
     }
 
-    setIsSending(true);
+    // Initialize progress
+    setBatchProgress({
+      currentBatch: 0,
+      totalBatches: batches.length,
+      sentEmails: 0,
+      totalEmails: contactsWithEmail.length,
+      failedEmails: 0,
+      status: "sending",
+      currentBatchStatus: "Iniciando campanha...",
+      errors: [],
+    });
+
+    let currentCampaignId = campaignId;
 
     try {
-      const payload: any = {
-        templateId: selectedTemplateId,
-        baseId: selectedSendBaseId,
-        fromEmail: fromEmail.trim(),
-        fromName: fromName.trim(),
-        emailType: emailType,
-      };
+      // Create campaign first if not exists
+      if (!currentCampaignId) {
+        const { data: campaign, error: campaignError } = await supabase
+          .from("email_campaigns")
+          .insert({
+            name: `Campanha - ${selectedTemplate?.name} - ${new Date().toLocaleDateString("pt-BR")}`,
+            template_id: selectedTemplateId,
+            base_id: selectedSendBaseId,
+            status: "sending",
+            total_recipients: contactsWithEmail.length,
+          })
+          .select()
+          .single();
 
-      if (sendToSelected && selectedContacts.length > 0) {
-        payload.contactIds = selectedContacts;
+        if (campaignError) {
+          throw new Error("Erro ao criar campanha");
+        }
+        currentCampaignId = campaign.id;
+        setCampaignId(currentCampaignId);
       }
 
-      const { data, error } = await supabase.functions.invoke("send-campaign-emails", {
-        body: payload,
-      });
+      // Send batches sequentially
+      let totalSent = 0;
+      let totalFailed = 0;
+      const allErrors: string[] = [];
 
-      if (error) {
-        throw new Error(error.message || "Erro ao enviar campanha");
+      for (let i = 0; i < batches.length; i++) {
+        // Check if paused
+        if (isPaused) {
+          setBatchProgress(prev => ({
+            ...prev,
+            status: "paused",
+            currentBatchStatus: `Pausado no lote ${i + 1}`,
+          }));
+          return;
+        }
+
+        const batch = batches[i];
+        const batchContactIds = batch.map(c => c.id);
+
+        setBatchProgress(prev => ({
+          ...prev,
+          currentBatch: i + 1,
+          currentBatchStatus: `Enviando lote ${i + 1} de ${batches.length} (${batch.length} emails)...`,
+        }));
+
+        try {
+          const { data, error } = await supabase.functions.invoke("send-campaign-emails", {
+            body: {
+              templateId: selectedTemplateId,
+              baseId: selectedSendBaseId,
+              fromEmail: fromEmail.trim(),
+              fromName: fromName.trim(),
+              emailType: emailType,
+              contactIds: batchContactIds,
+              campaignId: currentCampaignId,
+              batchMode: true, // Tell the function to process synchronously
+            },
+          });
+
+          if (error) {
+            throw new Error(error.message || "Erro ao enviar lote");
+          }
+
+          if (!data.success) {
+            throw new Error(data.error || "Erro desconhecido");
+          }
+
+          totalSent += data.sent || 0;
+          totalFailed += data.failed || 0;
+          
+          if (data.errors && data.errors.length > 0) {
+            allErrors.push(...data.errors);
+          }
+
+          setBatchProgress(prev => ({
+            ...prev,
+            sentEmails: totalSent,
+            failedEmails: totalFailed,
+            errors: allErrors,
+          }));
+
+          // Small delay between batches
+          if (i < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        } catch (batchError: any) {
+          console.error(`Error in batch ${i + 1}:`, batchError);
+          allErrors.push(`Lote ${i + 1}: ${batchError.message}`);
+          
+          setBatchProgress(prev => ({
+            ...prev,
+            errors: allErrors,
+          }));
+          
+          // Continue to next batch despite error
+        }
       }
 
-      if (!data.success) {
-        throw new Error(data.error || "Erro desconhecido");
-      }
+      // Update campaign status
+      await supabase
+        .from("email_campaigns")
+        .update({ 
+          status: totalFailed === contactsWithEmail.length ? "failed" : "completed",
+          sent_at: new Date().toISOString() 
+        })
+        .eq("id", currentCampaignId);
 
-      toast.success(
-        `Campanha iniciada! ${data.totalRecipients} emails serão enviados em background. Acompanhe o progresso na lista de campanhas.`
-      );
-      onOpenChange(false);
+      setBatchProgress(prev => ({
+        ...prev,
+        status: "completed",
+        currentBatchStatus: `Concluído! ${totalSent} emails enviados, ${totalFailed} falhas.`,
+      }));
+
+      toast.success(`Campanha concluída! ${totalSent} emails enviados.`);
+
     } catch (error: any) {
       console.error("Send campaign error:", error);
+      setBatchProgress(prev => ({
+        ...prev,
+        status: "error",
+        currentBatchStatus: error.message || "Erro ao enviar campanha",
+      }));
       toast.error(error.message || "Erro ao enviar campanha");
-    } finally {
-      setIsSending(false);
     }
   };
 
+  const handlePauseResume = () => {
+    if (isPaused) {
+      setIsPaused(false);
+      // Resume sending from current batch
+      handleSend();
+    } else {
+      setIsPaused(true);
+    }
+  };
+
+  const isSending = batchProgress.status === "sending";
+  const isCompleted = batchProgress.status === "completed";
+  const progressPercent = batchProgress.totalEmails > 0 
+    ? Math.round((batchProgress.sentEmails / batchProgress.totalEmails) * 100) 
+    : 0;
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(newOpen) => {
+      if (!newOpen && isSending) {
+        toast.warning("Campanha em andamento. Pause antes de fechar.");
+        return;
+      }
+      onOpenChange(newOpen);
+    }}>
       <DialogContent className="sm:max-w-[600px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
@@ -246,10 +420,99 @@ export const SendCampaignDialog = ({
         </DialogHeader>
 
         <div className="space-y-4 py-4">
+          {/* Progress UI when sending */}
+          {(isSending || isCompleted || batchProgress.status === "paused" || batchProgress.status === "error") && (
+            <Card className="p-4 bg-muted/50">
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">
+                    {batchProgress.status === "completed" ? (
+                      <span className="flex items-center gap-2 text-green-600">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Campanha Concluída
+                      </span>
+                    ) : batchProgress.status === "error" ? (
+                      <span className="flex items-center gap-2 text-destructive">
+                        <XCircle className="h-4 w-4" />
+                        Erro na Campanha
+                      </span>
+                    ) : batchProgress.status === "paused" ? (
+                      <span className="flex items-center gap-2 text-amber-600">
+                        <Pause className="h-4 w-4" />
+                        Campanha Pausada
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-2">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Enviando Emails...
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {batchProgress.sentEmails} / {batchProgress.totalEmails}
+                  </span>
+                </div>
+                
+                <Progress value={progressPercent} className="h-2" />
+                
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{batchProgress.currentBatchStatus}</span>
+                  <span>
+                    Lote {batchProgress.currentBatch} de {batchProgress.totalBatches}
+                  </span>
+                </div>
+
+                {batchProgress.failedEmails > 0 && (
+                  <p className="text-xs text-destructive">
+                    {batchProgress.failedEmails} emails falharam
+                  </p>
+                )}
+
+                {isSending && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handlePauseResume}
+                    className="w-full"
+                  >
+                    <Pause className="h-4 w-4 mr-2" />
+                    Pausar Envio
+                  </Button>
+                )}
+
+                {batchProgress.status === "paused" && (
+                  <Button
+                    size="sm"
+                    onClick={handlePauseResume}
+                    className="w-full"
+                  >
+                    <Play className="h-4 w-4 mr-2" />
+                    Continuar Envio
+                  </Button>
+                )}
+
+                {isCompleted && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onOpenChange(false)}
+                    className="w-full"
+                  >
+                    Fechar
+                  </Button>
+                )}
+              </div>
+            </Card>
+          )}
+
           {/* Template Selection */}
           <div className="space-y-2">
             <Label>Template de Email *</Label>
-            <Select value={selectedTemplateId} onValueChange={setSelectedTemplateId}>
+            <Select 
+              value={selectedTemplateId} 
+              onValueChange={setSelectedTemplateId}
+              disabled={isSending}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione um template" />
               </SelectTrigger>
@@ -274,7 +537,11 @@ export const SendCampaignDialog = ({
           {/* Base Selection */}
           <div className="space-y-2">
             <Label>Base de Contatos *</Label>
-            <Select value={selectedSendBaseId} onValueChange={setSelectedSendBaseId}>
+            <Select 
+              value={selectedSendBaseId} 
+              onValueChange={setSelectedSendBaseId}
+              disabled={isSending}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Selecione uma base" />
               </SelectTrigger>
@@ -297,7 +564,11 @@ export const SendCampaignDialog = ({
           {/* Email Type Selection */}
           <div className="space-y-2">
             <Label>Tipo de Email para Envio *</Label>
-            <Select value={emailType} onValueChange={(v: "personal" | "corporate" | "both") => setEmailType(v)}>
+            <Select 
+              value={emailType} 
+              onValueChange={(v: "personal" | "corporate" | "both") => setEmailType(v)}
+              disabled={isSending}
+            >
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -339,6 +610,7 @@ export const SendCampaignDialog = ({
                   checked={sendToSelected}
                   onChange={(e) => setSendToSelected(e.target.checked)}
                   className="rounded"
+                  disabled={isSending}
                 />
                 <Label htmlFor="sendToSelected" className="cursor-pointer text-sm">
                   Enviar apenas para os {selectedContacts.length} contatos selecionados
@@ -356,6 +628,7 @@ export const SendCampaignDialog = ({
               value={fromEmail}
               onChange={(e) => setFromEmail(e.target.value)}
               placeholder="seu@dominio.com"
+              disabled={isSending}
             />
             <p className="text-xs text-muted-foreground">
               Use um email do seu domínio verificado no Resend.
@@ -370,6 +643,7 @@ export const SendCampaignDialog = ({
               value={fromName}
               onChange={(e) => setFromName(e.target.value)}
               placeholder="Ex: João da Empresa XYZ"
+              disabled={isSending}
             />
           </div>
 
@@ -421,6 +695,13 @@ export const SendCampaignDialog = ({
                   </span>
                 )}
               </p>
+              {batches.length > 1 && (
+                <p className="text-blue-600 dark:text-blue-400">
+                  <strong>Lotes:</strong>{" "}
+                  <span className="font-medium">{batches.length} lotes</span>
+                  <span className="text-xs ml-1">({BATCH_SIZE} emails por lote)</span>
+                </p>
+              )}
             </div>
           </Card>
 
@@ -436,7 +717,11 @@ export const SendCampaignDialog = ({
           </Card>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+            <Button 
+              variant="outline" 
+              onClick={() => onOpenChange(false)}
+              disabled={isSending}
+            >
               Cancelar
             </Button>
             <Button
@@ -447,17 +732,13 @@ export const SendCampaignDialog = ({
                 !fromEmail.trim() ||
                 !fromName.trim() ||
                 contactsWithEmail.length === 0 ||
-                isSending
+                isSending ||
+                isCompleted
               }
             >
-              {isSending ? (
-                "Enviando..."
-              ) : (
-                <>
-                  <Send className="h-4 w-4 mr-2" />
-                  Enviar {contactsWithEmail.length} Email{contactsWithEmail.length !== 1 ? "s" : ""}
-                </>
-              )}
+              <Send className="h-4 w-4 mr-2" />
+              Enviar {contactsWithEmail.length} Email{contactsWithEmail.length !== 1 ? "s" : ""}
+              {batches.length > 1 && ` (${batches.length} lotes)`}
             </Button>
           </div>
         </div>
