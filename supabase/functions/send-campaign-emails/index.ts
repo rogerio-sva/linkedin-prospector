@@ -248,6 +248,43 @@ serve(async (req: Request): Promise<Response> => {
 
         console.log(`Email sent to ${recipientEmail}:`, emailResponse);
 
+        // Check for rate limit or quota errors in response
+        if (emailResponse.error) {
+          const errorName = (emailResponse.error as any).name;
+          const errorMessage = (emailResponse.error as any).message || "Erro desconhecido";
+          
+          console.error(`Resend API error for ${recipientEmail}:`, emailResponse.error);
+          
+          // Record as failed
+          await supabase.from("email_sends").insert({
+            campaign_id: activeCampaignId,
+            contact_id: contact.id,
+            recipient_email: recipientEmail,
+            recipient_name: recipientName,
+            subject: subject,
+            body: body,
+            status: "failed",
+            error_message: errorMessage,
+          });
+
+          results.failed++;
+          results.errors.push(`${recipientEmail}: ${errorMessage}`);
+
+          // If daily quota exceeded, stop sending more emails
+          if (errorName === "daily_quota_exceeded") {
+            console.log("Daily quota exceeded, stopping campaign...");
+            break;
+          }
+
+          // If rate limited, wait longer before next attempt
+          if (errorName === "rate_limit_exceeded") {
+            console.log("Rate limited, waiting 2 seconds...");
+            await new Promise((resolve) => setTimeout(resolve, 2000));
+          }
+          
+          continue;
+        }
+
         // Record successful send
         await supabase.from("email_sends").insert({
           campaign_id: activeCampaignId,
@@ -281,8 +318,8 @@ serve(async (req: Request): Promise<Response> => {
         results.errors.push(`${recipientEmail}: ${emailError.message}`);
       }
 
-      // Small delay to avoid rate limiting
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      // Delay of 550ms to respect Resend's 2 emails/second rate limit
+      await new Promise((resolve) => setTimeout(resolve, 550));
     }
 
     // Update campaign status
