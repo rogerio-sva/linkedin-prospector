@@ -55,6 +55,7 @@ export const SendCampaignDialog = ({
   // State for loaded contacts when base is selected in dialog
   const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  const [alreadySentCount, setAlreadySentCount] = useState(0);
 
   // Use initial contacts if provided, otherwise use loaded contacts
   const contacts = initialContacts.length > 0 ? initialContacts : loadedContacts;
@@ -63,24 +64,41 @@ export const SendCampaignDialog = ({
   const selectedTemplate = templates.find((t) => t.id === selectedTemplateId);
   const selectedBase = bases.find((b) => b.id === selectedSendBaseId);
 
-  // Load contacts when base is selected and no initial contacts provided
+  // Load contacts when base is selected and filter out already sent
   useEffect(() => {
     const loadBaseContacts = async () => {
       if (!selectedSendBaseId || initialContacts.length > 0) {
         setLoadedContacts([]);
+        setAlreadySentCount(0);
         return;
       }
 
       setIsLoadingContacts(true);
       try {
-        const { data, error } = await supabase
+        // Get all contacts from base
+        const { data: allContacts, error: contactsError } = await supabase
           .from("contacts")
           .select("*")
           .eq("base_id", selectedSendBaseId);
 
-        if (error) throw error;
+        if (contactsError) throw contactsError;
 
-        const mappedContacts: LinkedInContact[] = (data || []).map((contact) => ({
+        // Get contact IDs that already received emails
+        const { data: sentEmails, error: sentError } = await supabase
+          .from("email_sends")
+          .select("contact_id")
+          .in("contact_id", (allContacts || []).map(c => c.id));
+
+        if (sentError) throw sentError;
+
+        // Create set of already sent contact IDs
+        const alreadySentIds = new Set((sentEmails || []).map(e => e.contact_id));
+        setAlreadySentCount(alreadySentIds.size);
+
+        // Filter out contacts that already received emails
+        const unsnetContacts = (allContacts || []).filter(c => !alreadySentIds.has(c.id));
+
+        const mappedContacts: LinkedInContact[] = unsnetContacts.map((contact) => ({
           id: contact.id,
           firstName: contact.first_name || "",
           lastName: contact.last_name || "",
@@ -338,18 +356,35 @@ export const SendCampaignDialog = ({
                 <strong>Base:</strong> {selectedBase?.name || "Não selecionada"}
               </p>
               <p>
-                <strong>Total de contatos:</strong>{" "}
+                <strong>Total na base:</strong>{" "}
                 {isLoadingContacts ? (
                   <span className="inline-flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Carregando...
                   </span>
                 ) : (
+                  <span className="text-foreground font-medium">
+                    {contacts.length + alreadySentCount}
+                  </span>
+                )}
+              </p>
+              {alreadySentCount > 0 && (
+                <p className="text-amber-600 dark:text-amber-400">
+                  <strong>Já receberam email:</strong>{" "}
+                  <span className="font-medium">{alreadySentCount}</span>
+                  <span className="text-xs ml-1">(excluídos automaticamente)</span>
+                </p>
+              )}
+              <p>
+                <strong>Pendentes de envio:</strong>{" "}
+                {isLoadingContacts ? (
+                  <span className="text-muted-foreground">-</span>
+                ) : (
                   <span className="text-foreground font-medium">{contacts.length}</span>
                 )}
               </p>
               <p>
-                <strong>Contatos com email:</strong>{" "}
+                <strong>Com email válido:</strong>{" "}
                 {isLoadingContacts ? (
                   <span className="text-muted-foreground">-</span>
                 ) : (
@@ -372,7 +407,6 @@ export const SendCampaignDialog = ({
             </div>
           </Card>
 
-          {/* Actions */}
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => onOpenChange(false)}>
               Cancelar
