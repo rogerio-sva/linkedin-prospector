@@ -10,6 +10,7 @@ import { SendCampaignDialog } from "@/components/SendCampaignDialog";
 import { BulkTagActions } from "@/components/BulkTagActions";
 import { TagFilterDropdown } from "@/components/TagFilterDropdown";
 import { ManageTagsDialog } from "@/components/ManageTagsDialog";
+import { EditContactDialog, ContactUpdates } from "@/components/EditContactDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
 import { useTags } from "@/hooks/useTags";
@@ -43,7 +44,7 @@ const initialContactFilters: ContactFiltersState = {
 };
 
 const BasesPage = () => {
-  const { bases, createBase, deleteBase, loadBaseContacts, deleteContacts, getBouncedContactIds, refreshBases } = useBases();
+  const { bases, createBase, deleteBase, loadBaseContacts, deleteContacts, getBouncedContactIds, updateContact, refreshBases } = useBases();
   const { templates } = useEmailTemplates();
   const {
     tags,
@@ -73,6 +74,8 @@ const BasesPage = () => {
   const [deleteContactsDialogOpen, setDeleteContactsDialogOpen] = useState(false);
   const [contactsToDelete, setContactsToDelete] = useState<string[]>([]);
   const [deleteMode, setDeleteMode] = useState<'selected' | 'filtered'>('selected');
+  const [editContactDialogOpen, setEditContactDialogOpen] = useState(false);
+  const [contactToEdit, setContactToEdit] = useState<LinkedInContact | null>(null);
 
   // Load contact tags when contacts change
   useEffect(() => {
@@ -188,6 +191,31 @@ const BasesPage = () => {
     setDeleteContactsDialogOpen(false);
   };
 
+  const handleEditContact = (contact: LinkedInContact) => {
+    setContactToEdit(contact);
+    setEditContactDialogOpen(true);
+  };
+
+  const handleSaveContact = async (contactId: string, updates: ContactUpdates) => {
+    const success = await updateContact(contactId, updates);
+    if (success) {
+      // Update local contacts state
+      setContacts((prev) =>
+        prev.map((c) =>
+          c.id === contactId
+            ? {
+                ...c,
+                email: updates.email ?? c.email,
+                personalEmail: updates.personal_email ?? c.personalEmail,
+                mobileNumber: updates.mobile_number ?? c.mobileNumber,
+                companyPhone: updates.company_phone ?? c.companyPhone,
+              }
+            : c
+        )
+      );
+    }
+  };
+
   return (
     <div className="p-6">
       {/* Delete Confirmation Dialog */}
@@ -254,6 +282,14 @@ const BasesPage = () => {
         onCreateTag={createTag}
         onUpdateTag={updateTag}
         onDeleteTag={deleteTag}
+      />
+
+      {/* Edit Contact Dialog */}
+      <EditContactDialog
+        open={editContactDialogOpen}
+        onOpenChange={setEditContactDialogOpen}
+        contact={contactToEdit}
+        onSave={handleSaveContact}
       />
 
       {/* Header */}
@@ -437,6 +473,7 @@ const BasesPage = () => {
                   getTagsForContact={getTagsForContact}
                   onToggleContactTag={handleToggleContactTag}
                   onCreateTag={createTag}
+                  onEditContact={handleEditContact}
                 />
               </>
             )}

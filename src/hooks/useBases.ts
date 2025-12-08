@@ -247,6 +247,32 @@ export function useBases() {
     }
   };
 
+  const updateContact = async (
+    contactId: string,
+    updates: {
+      email?: string | null;
+      personal_email?: string | null;
+      mobile_number?: string | null;
+      company_phone?: string | null;
+    }
+  ): Promise<boolean> => {
+    try {
+      const { error } = await supabase
+        .from('contacts')
+        .update(updates)
+        .eq('id', contactId);
+
+      if (error) throw error;
+
+      toast.success('Contato atualizado com sucesso');
+      return true;
+    } catch (error) {
+      console.error('Error updating contact:', error);
+      toast.error('Erro ao atualizar contato');
+      return false;
+    }
+  };
+
   return {
     bases,
     isLoading,
@@ -256,6 +282,7 @@ export function useBases() {
     loadBaseContacts,
     deleteContacts,
     getBouncedContactIds,
+    updateContact,
     refreshBases: fetchBases,
   };
 }

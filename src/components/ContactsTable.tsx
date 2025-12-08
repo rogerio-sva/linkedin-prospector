@@ -20,6 +20,7 @@ import {
   Building2,
   MapPin,
   User,
+  Pencil,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,7 @@ interface ContactsTableProps {
   getTagsForContact?: (contactId: string) => Tag[];
   onToggleContactTag?: (contactId: string, tagId: string) => void;
   onCreateTag?: (name: string, color: string) => Promise<Tag | null>;
+  onEditContact?: (contact: LinkedInContact) => void;
 }
 
 type SortField = keyof LinkedInContact;
@@ -53,6 +55,7 @@ export const ContactsTable = ({
   getTagsForContact,
   onToggleContactTag,
   onCreateTag,
+  onEditContact,
 }: ContactsTableProps) => {
   const [sortField, setSortField] = useState<SortField>("fullName");
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -224,6 +227,7 @@ export const ContactsTable = ({
               </TableHead>
               <TableHead>Nível</TableHead>
               {tags.length > 0 && <TableHead>Tags</TableHead>}
+              {onEditContact && <TableHead className="w-12">Ações</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -418,6 +422,18 @@ export const ContactsTable = ({
                           />
                         )}
                       </div>
+                    </TableCell>
+                  )}
+                  {onEditContact && (
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8"
+                        onClick={() => onEditContact(contact)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
                     </TableCell>
                   )}
                 </TableRow>
