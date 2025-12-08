@@ -148,16 +148,36 @@ export function useBases() {
 
   const loadBaseContacts = async (baseId: string): Promise<LinkedInContact[]> => {
     try {
-      const { data, error } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('base_id', baseId)
-        .order('created_at', { ascending: false });
+      const PAGE_SIZE = 1000;
+      let allData: any[] = [];
+      let page = 0;
+      let hasMore = true;
 
-      if (error) throw error;
+      // Fetch all contacts in batches of 1000
+      while (hasMore) {
+        const from = page * PAGE_SIZE;
+        const to = from + PAGE_SIZE - 1;
+
+        const { data, error } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('base_id', baseId)
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        if (data && data.length > 0) {
+          allData = [...allData, ...data];
+          page++;
+          hasMore = data.length === PAGE_SIZE;
+        } else {
+          hasMore = false;
+        }
+      }
 
       // Map database contacts to LinkedInContact format
-      return (data || []).map((c) => {
+      return allData.map((c) => {
         // Use full_data if available for complete contact info
         const fullData = (c.full_data as Record<string, unknown>) || {};
         
