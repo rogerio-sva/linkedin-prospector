@@ -270,22 +270,38 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log("Template loaded:", template.name);
 
-    // Fetch contacts from base
-    let query = supabase
-      .from("contacts")
-      .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
-      .eq("base_id", baseId);
+    // Fetch contacts from base with pagination (Supabase defaults to 1000)
+    let allContacts: Contact[] = [];
+    let offset = 0;
+    const pageSize = 1000;
+    
+    while (true) {
+      let query = supabase
+        .from("contacts")
+        .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+        .eq("base_id", baseId)
+        .range(offset, offset + pageSize - 1);
 
-    if (contactIds && contactIds.length > 0) {
-      query = query.in("id", contactIds);
+      if (contactIds && contactIds.length > 0) {
+        query = query.in("id", contactIds);
+      }
+
+      const { data: batch, error: contactsError } = await query;
+
+      if (contactsError) {
+        console.error("Contacts error:", contactsError);
+        throw new Error("Erro ao buscar contatos");
+      }
+      
+      if (!batch || batch.length === 0) break;
+      
+      allContacts = [...allContacts, ...batch];
+      
+      if (batch.length < pageSize) break;
+      offset += pageSize;
     }
 
-    const { data: contacts, error: contactsError } = await query;
-
-    if (contactsError) {
-      console.error("Contacts error:", contactsError);
-      throw new Error("Erro ao buscar contatos");
-    }
+    const contacts = allContacts;
 
     if (!contacts || contacts.length === 0) {
       throw new Error("Nenhum contato encontrado na base");
