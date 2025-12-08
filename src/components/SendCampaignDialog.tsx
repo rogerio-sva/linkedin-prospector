@@ -75,13 +75,28 @@ export const SendCampaignDialog = ({
 
       setIsLoadingContacts(true);
       try {
-        // Get all contacts from base with their email_sends status using a left join approach
-        const { data: allContacts, error: contactsError } = await supabase
-          .from("contacts")
-          .select("*")
-          .eq("base_id", selectedSendBaseId);
+        // Get all contacts from base - explicitly set no limit (Supabase defaults to 1000)
+        let allContacts: any[] = [];
+        let offset = 0;
+        const pageSize = 1000;
+        
+        while (true) {
+          const { data: batch, error: contactsError } = await supabase
+            .from("contacts")
+            .select("*")
+            .eq("base_id", selectedSendBaseId)
+            .range(offset, offset + pageSize - 1);
 
-        if (contactsError) throw contactsError;
+          if (contactsError) throw contactsError;
+          
+          if (!batch || batch.length === 0) break;
+          
+          allContacts = [...allContacts, ...batch];
+          
+          if (batch.length < pageSize) break;
+          offset += pageSize;
+        }
+
 
         // Get all contact IDs from this base that have received emails
         // Using a simpler query that doesn't hit the .in() limit
