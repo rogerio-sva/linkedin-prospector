@@ -18,7 +18,7 @@ interface EmailRequest {
   replyTo?: string;
   emailType?: "personal" | "corporate" | "both";
   contactIds?: string[];
-  batchMode?: boolean; // If true, process synchronously and return results
+  batchMode?: boolean;
   testRecipient?: {
     email: string;
     name: string;
@@ -47,6 +47,14 @@ interface Template {
   body: string;
 }
 
+interface BatchEmailItem {
+  from: string;
+  to: string[];
+  reply_to: string;
+  subject: string;
+  html: string;
+}
+
 function renderTemplate(template: Template, contact: Contact): { subject: string; body: string } {
   const replacements: Record<string, string> = {
     firstName: contact.first_name || "",
@@ -71,8 +79,8 @@ function renderTemplate(template: Template, contact: Contact): { subject: string
   return { subject: renderedSubject, body: renderedBody };
 }
 
-// Send emails synchronously (for batch mode)
-async function sendEmailsSynchronously(
+// Send emails using Resend Batch API (up to 100 emails per request)
+async function sendEmailsWithBatchAPI(
   supabase: any,
   template: Template,
   contactsWithEmail: Contact[],
@@ -82,7 +90,7 @@ async function sendEmailsSynchronously(
   replyTo: string,
   emailType: string
 ): Promise<{ sent: number; failed: number; errors: string[] }> {
-  console.log(`[Batch] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
+  console.log(`[BatchAPI] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
   
   const results = {
     sent: 0,
@@ -90,106 +98,157 @@ async function sendEmailsSynchronously(
     errors: [] as string[],
   };
 
-  for (const contact of contactsWithEmail) {
-    let recipientEmail: string;
-    if (emailType === "personal") {
-      recipientEmail = contact.personal_email!;
-    } else if (emailType === "corporate") {
-      recipientEmail = contact.email!;
-    } else {
-      recipientEmail = contact.personal_email || contact.email!;
-    }
-    const recipientName = contact.full_name || contact.first_name || "Contato";
+  const BATCH_SIZE = 100; // Resend allows up to 100 emails per batch request
+  
+  // Split contacts into batches of 100
+  for (let i = 0; i < contactsWithEmail.length; i += BATCH_SIZE) {
+    const batchContacts = contactsWithEmail.slice(i, i + BATCH_SIZE);
+    const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(contactsWithEmail.length / BATCH_SIZE);
     
-    try {
+    console.log(`[BatchAPI] Processing batch ${batchNumber}/${totalBatches} (${batchContacts.length} emails)`);
+    
+    // Prepare batch email data
+    const batchEmails: BatchEmailItem[] = [];
+    const contactMap: Map<string, { contact: Contact; recipientEmail: string; recipientName: string; subject: string; body: string }> = new Map();
+    
+    for (const contact of batchContacts) {
+      let recipientEmail: string;
+      if (emailType === "personal") {
+        recipientEmail = contact.personal_email!;
+      } else if (emailType === "corporate") {
+        recipientEmail = contact.email!;
+      } else {
+        recipientEmail = contact.personal_email || contact.email!;
+      }
+      const recipientName = contact.full_name || contact.first_name || "Contato";
+      
       const { subject, body } = renderTemplate(template, contact);
-
       const htmlBody = body
         .split("\n")
         .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
         .join("");
-
-      console.log(`[Batch] Sending email to ${recipientEmail}...`);
-
-      const emailResponse = await resend.emails.send({
+      
+      batchEmails.push({
         from: `${fromName} <${fromEmail}>`,
         to: [recipientEmail],
-        reply_to: replyTo || fromEmail,
+        reply_to: replyTo,
         subject: subject,
         html: htmlBody,
       });
-
-      console.log(`[Batch] Email sent to ${recipientEmail}:`, emailResponse);
-
-      if (emailResponse.error) {
-        const errorName = (emailResponse.error as any).name;
-        const errorMessage = (emailResponse.error as any).message || "Erro desconhecido";
+      
+      contactMap.set(recipientEmail, { contact, recipientEmail, recipientName, subject, body });
+    }
+    
+    try {
+      // Use Resend Batch API
+      console.log(`[BatchAPI] Sending batch request with ${batchEmails.length} emails...`);
+      const batchResponse = await resend.batch.send(batchEmails);
+      
+      console.log(`[BatchAPI] Batch response:`, JSON.stringify(batchResponse));
+      
+      if (batchResponse.error) {
+        console.error(`[BatchAPI] Batch error:`, batchResponse.error);
         
-        console.error(`[Batch] Resend API error for ${recipientEmail}:`, emailResponse.error);
+        // If batch fails entirely, record all as failed
+        for (const [email, data] of contactMap) {
+          await supabase.from("email_sends").insert({
+            campaign_id: campaignId,
+            contact_id: data.contact.id,
+            recipient_email: data.recipientEmail,
+            recipient_name: data.recipientName,
+            subject: data.subject,
+            body: data.body,
+            status: "failed",
+            error_message: (batchResponse.error as any).message || "Erro no batch",
+          });
+          results.failed++;
+          results.errors.push(`${email}: ${(batchResponse.error as any).message}`);
+        }
         
-        await supabase.from("email_sends").insert({
-          campaign_id: campaignId,
-          contact_id: contact.id,
-          recipient_email: recipientEmail,
-          recipient_name: recipientName,
-          subject: subject,
-          body: body,
-          status: "failed",
-          error_message: errorMessage,
-        });
-
-        results.failed++;
-        results.errors.push(`${recipientEmail}: ${errorMessage}`);
-
+        // Check for rate limit or quota errors
+        const errorName = (batchResponse.error as any).name;
         if (errorName === "daily_quota_exceeded") {
-          console.log("[Batch] Daily quota exceeded, stopping batch...");
+          console.log("[BatchAPI] Daily quota exceeded, stopping...");
           break;
         }
-
         if (errorName === "rate_limit_exceeded") {
-          console.log("[Batch] Rate limited, waiting 2 seconds...");
+          console.log("[BatchAPI] Rate limited, waiting 2 seconds...");
           await new Promise((resolve) => setTimeout(resolve, 2000));
         }
         
         continue;
       }
-
-      await supabase.from("email_sends").insert({
-        campaign_id: campaignId,
-        contact_id: contact.id,
-        recipient_email: recipientEmail,
-        recipient_name: recipientName,
-        subject: subject,
-        body: body,
-        status: "sent",
-        resend_id: emailResponse.data?.id || null,
-        sent_at: new Date().toISOString(),
-      });
-
-      results.sent++;
-    } catch (emailError: any) {
-      console.error(`[Batch] Failed to send email to ${recipientEmail}:`, emailError);
-
-      await supabase.from("email_sends").insert({
-        campaign_id: campaignId,
-        contact_id: contact.id,
-        recipient_email: recipientEmail,
-        recipient_name: recipientName,
-        subject: template.subject,
-        body: template.body,
-        status: "failed",
-        error_message: emailError.message || "Erro desconhecido",
-      });
-
-      results.failed++;
-      results.errors.push(`${recipientEmail}: ${emailError.message}`);
+      
+      // Process successful batch response
+      if (batchResponse.data && Array.isArray(batchResponse.data)) {
+        const emailEntries = Array.from(contactMap.entries());
+        
+        for (let j = 0; j < batchResponse.data.length; j++) {
+          const result = batchResponse.data[j];
+          const [email, data] = emailEntries[j];
+          
+          if (result.id) {
+            // Success
+            await supabase.from("email_sends").insert({
+              campaign_id: campaignId,
+              contact_id: data.contact.id,
+              recipient_email: data.recipientEmail,
+              recipient_name: data.recipientName,
+              subject: data.subject,
+              body: data.body,
+              status: "sent",
+              resend_id: result.id,
+              sent_at: new Date().toISOString(),
+            });
+            results.sent++;
+          } else {
+            // Individual email failed
+            await supabase.from("email_sends").insert({
+              campaign_id: campaignId,
+              contact_id: data.contact.id,
+              recipient_email: data.recipientEmail,
+              recipient_name: data.recipientName,
+              subject: data.subject,
+              body: data.body,
+              status: "failed",
+              error_message: "Erro ao enviar",
+            });
+            results.failed++;
+            results.errors.push(`${email}: Erro ao enviar`);
+          }
+        }
+      }
+      
+      console.log(`[BatchAPI] Batch ${batchNumber} completed: ${results.sent} sent, ${results.failed} failed`);
+      
+    } catch (batchError: any) {
+      console.error(`[BatchAPI] Batch ${batchNumber} exception:`, batchError);
+      
+      // Record all emails in this batch as failed
+      for (const [email, data] of contactMap) {
+        await supabase.from("email_sends").insert({
+          campaign_id: campaignId,
+          contact_id: data.contact.id,
+          recipient_email: data.recipientEmail,
+          recipient_name: data.recipientName,
+          subject: data.subject,
+          body: data.body,
+          status: "failed",
+          error_message: batchError.message || "Erro desconhecido",
+        });
+        results.failed++;
+        results.errors.push(`${email}: ${batchError.message}`);
+      }
     }
-
-    // Delay of 550ms to respect Resend's 2 emails/second rate limit
-    await new Promise((resolve) => setTimeout(resolve, 550));
+    
+    // Small delay between batch requests to avoid rate limits (100ms)
+    if (i + BATCH_SIZE < contactsWithEmail.length) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
   }
 
-  console.log(`[Batch] Batch completed:`, results);
+  console.log(`[BatchAPI] All batches completed:`, results);
   return results;
 }
 
@@ -312,8 +371,8 @@ serve(async (req: Request): Promise<Response> => {
 
       console.log(`${contactsWithEmail.length} contacts have valid emails for type: ${emailType}`);
 
-      // Process batch synchronously
-      const results = await sendEmailsSynchronously(
+      // Process batch using Batch API
+      const results = await sendEmailsWithBatchAPI(
         supabase,
         template,
         contactsWithEmail,
@@ -420,8 +479,8 @@ serve(async (req: Request): Promise<Response> => {
         .eq("id", activeCampaignId);
     }
 
-    // Process synchronously for legacy mode (small batches)
-    const results = await sendEmailsSynchronously(
+    // Process using Batch API
+    const results = await sendEmailsWithBatchAPI(
       supabase,
       template,
       contactsWithEmail,
