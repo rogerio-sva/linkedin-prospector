@@ -75,7 +75,7 @@ export const SendCampaignDialog = ({
 
       setIsLoadingContacts(true);
       try {
-        // Get all contacts from base
+        // Get all contacts from base with their email_sends status using a left join approach
         const { data: allContacts, error: contactsError } = await supabase
           .from("contacts")
           .select("*")
@@ -83,16 +83,29 @@ export const SendCampaignDialog = ({
 
         if (contactsError) throw contactsError;
 
-        // Get contact IDs that already received emails
-        const { data: sentEmails, error: sentError } = await supabase
-          .from("email_sends")
-          .select("contact_id")
-          .in("contact_id", (allContacts || []).map(c => c.id));
+        // Get all contact IDs from this base that have received emails
+        // Using a simpler query that doesn't hit the .in() limit
+        const contactIds = (allContacts || []).map(c => c.id);
+        
+        // Query in batches of 100 to avoid Bad Request
+        const batchSize = 100;
+        const alreadySentIds = new Set<string>();
+        
+        for (let i = 0; i < contactIds.length; i += batchSize) {
+          const batch = contactIds.slice(i, i + batchSize);
+          const { data: sentEmails, error: sentError } = await supabase
+            .from("email_sends")
+            .select("contact_id")
+            .in("contact_id", batch);
 
-        if (sentError) throw sentError;
+          if (sentError) {
+            console.error("Error fetching sent emails batch:", sentError);
+            continue;
+          }
 
-        // Create set of already sent contact IDs
-        const alreadySentIds = new Set((sentEmails || []).map(e => e.contact_id));
+          (sentEmails || []).forEach(e => alreadySentIds.add(e.contact_id));
+        }
+        
         setAlreadySentCount(alreadySentIds.size);
 
         // Filter out contacts that already received emails
