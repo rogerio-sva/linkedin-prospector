@@ -136,18 +136,35 @@ serve(async (req) => {
           continue;
         }
 
-        // Fetch dataset items
+        // Fetch ALL dataset items (Apify defaults to 1000, we need all)
         console.log(`Fetching dataset: ${datasetId}`);
-        const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_TOKEN}`;
-        const datasetResponse = await fetch(datasetUrl);
+        const allItems: ApifyDatasetItem[] = [];
+        let offset = 0;
+        const fetchLimit = 1000; // Apify max per request
         
-        if (!datasetResponse.ok) {
-          errors.push(`Dataset ${datasetId}: Failed to fetch`);
-          continue;
+        while (true) {
+          const datasetUrl = `https://api.apify.com/v2/datasets/${datasetId}/items?token=${APIFY_API_TOKEN}&limit=${fetchLimit}&offset=${offset}`;
+          const datasetResponse = await fetch(datasetUrl);
+          
+          if (!datasetResponse.ok) {
+            errors.push(`Dataset ${datasetId}: Failed to fetch at offset ${offset}`);
+            break;
+          }
+
+          const batch: ApifyDatasetItem[] = await datasetResponse.json();
+          console.log(`Fetched ${batch.length} items at offset ${offset}`);
+          
+          if (batch.length === 0) break;
+          
+          allItems.push(...batch);
+          offset += fetchLimit;
+          
+          // Safety: if we got less than limit, we're done
+          if (batch.length < fetchLimit) break;
         }
 
-        const items: ApifyDatasetItem[] = await datasetResponse.json();
-        console.log(`Got ${items.length} items from dataset ${datasetId}`);
+        const items = allItems;
+        console.log(`Got ${items.length} total items from dataset ${datasetId}`);
 
         // Prepare contacts for batch insert
         const contactsToInsert = [];
