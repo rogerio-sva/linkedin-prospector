@@ -9,8 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, X, Filter, Trash2 } from "lucide-react";
-import { LinkedInContact } from "@/types/contact";
+import { Search, X, Filter, Trash2, Loader2 } from "lucide-react";
 
 export interface ContactFiltersState {
   search: string;
@@ -23,18 +22,27 @@ export interface ContactFiltersState {
   isBounced: string;
 }
 
+export interface FilterOptions {
+  jobTitles: string[];
+  companies: string[];
+  industries: string[];
+  cities: string[];
+}
+
 interface ContactFiltersProps {
-  contacts: LinkedInContact[];
   filters: ContactFiltersState;
   onFiltersChange: (filters: ContactFiltersState) => void;
+  filterOptions: FilterOptions;
   selectedCount: number;
   onDeleteSelected: () => void;
   onDeleteFiltered: () => void;
   filteredCount: number;
-  bouncedContactIds?: string[];
+  totalCount: number;
+  bouncedCount?: number;
+  isLoading?: boolean;
 }
 
-const initialFilters: ContactFiltersState = {
+export const initialContactFilters: ContactFiltersState = {
   search: "",
   jobTitle: "",
   company: "",
@@ -46,43 +54,23 @@ const initialFilters: ContactFiltersState = {
 };
 
 export const ContactFilters = ({
-  contacts,
   filters,
   onFiltersChange,
+  filterOptions,
   selectedCount,
   onDeleteSelected,
   onDeleteFiltered,
   filteredCount,
-  bouncedContactIds = [],
+  totalCount,
+  bouncedCount = 0,
+  isLoading = false,
 }: ContactFiltersProps) => {
   const [isExpanded, setIsExpanded] = useState(false);
-
-  // Extract unique values for dropdowns
-  const uniqueValues = useMemo(() => {
-    const jobTitles = new Set<string>();
-    const companies = new Set<string>();
-    const industries = new Set<string>();
-    const cities = new Set<string>();
-
-    contacts.forEach((c) => {
-      if (c.jobTitle) jobTitles.add(c.jobTitle);
-      if (c.companyName) companies.add(c.companyName);
-      if (c.industry) industries.add(c.industry);
-      if (c.city) cities.add(c.city);
-    });
-
-    return {
-      jobTitles: Array.from(jobTitles).sort(),
-      companies: Array.from(companies).sort(),
-      industries: Array.from(industries).sort(),
-      cities: Array.from(cities).sort(),
-    };
-  }, [contacts]);
 
   const activeFiltersCount = Object.values(filters).filter((v) => v !== "").length;
 
   const clearFilters = () => {
-    onFiltersChange(initialFilters);
+    onFiltersChange(initialContactFilters);
   };
 
   const updateFilter = (key: keyof ContactFiltersState, value: string) => {
@@ -100,13 +88,18 @@ export const ContactFilters = ({
             value={filters.search}
             onChange={(e) => updateFilter("search", e.target.value)}
             className="pl-9"
+            disabled={isLoading}
           />
+          {isLoading && (
+            <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground animate-spin" />
+          )}
         </div>
         <Button
           variant={isExpanded ? "default" : "outline"}
           size="icon"
           onClick={() => setIsExpanded(!isExpanded)}
           className="relative"
+          disabled={isLoading}
         >
           <Filter className="h-4 w-4" />
           {activeFiltersCount > 0 && (
@@ -123,13 +116,13 @@ export const ContactFilters = ({
       {/* Expanded filters */}
       {isExpanded && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 p-3 bg-muted/30 rounded-lg border border-border">
-          <Select value={filters.jobTitle || "all"} onValueChange={(v) => updateFilter("jobTitle", v === "all" ? "" : v)}>
+          <Select value={filters.jobTitle || "all"} onValueChange={(v) => updateFilter("jobTitle", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Cargo" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos os cargos</SelectItem>
-              {uniqueValues.jobTitles.slice(0, 50).map((job) => (
+              {filterOptions.jobTitles.slice(0, 50).map((job) => (
                 <SelectItem key={job} value={job} className="text-xs">
                   {job}
                 </SelectItem>
@@ -137,13 +130,13 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.company || "all"} onValueChange={(v) => updateFilter("company", v === "all" ? "" : v)}>
+          <Select value={filters.company || "all"} onValueChange={(v) => updateFilter("company", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Empresa" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as empresas</SelectItem>
-              {uniqueValues.companies.slice(0, 50).map((company) => (
+              {filterOptions.companies.slice(0, 50).map((company) => (
                 <SelectItem key={company} value={company} className="text-xs">
                   {company}
                 </SelectItem>
@@ -151,13 +144,13 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.industry || "all"} onValueChange={(v) => updateFilter("industry", v === "all" ? "" : v)}>
+          <Select value={filters.industry || "all"} onValueChange={(v) => updateFilter("industry", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Indústria" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as indústrias</SelectItem>
-              {uniqueValues.industries.slice(0, 50).map((industry) => (
+              {filterOptions.industries.slice(0, 50).map((industry) => (
                 <SelectItem key={industry} value={industry} className="text-xs">
                   {industry}
                 </SelectItem>
@@ -165,13 +158,13 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.city || "all"} onValueChange={(v) => updateFilter("city", v === "all" ? "" : v)}>
+          <Select value={filters.city || "all"} onValueChange={(v) => updateFilter("city", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Cidade" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todas as cidades</SelectItem>
-              {uniqueValues.cities.slice(0, 50).map((city) => (
+              {filterOptions.cities.slice(0, 50).map((city) => (
                 <SelectItem key={city} value={city} className="text-xs">
                   {city}
                 </SelectItem>
@@ -179,7 +172,7 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.hasEmail || "all"} onValueChange={(v) => updateFilter("hasEmail", v === "all" ? "" : v)}>
+          <Select value={filters.hasEmail || "all"} onValueChange={(v) => updateFilter("hasEmail", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Email" />
             </SelectTrigger>
@@ -190,7 +183,7 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          <Select value={filters.hasPhone || "all"} onValueChange={(v) => updateFilter("hasPhone", v === "all" ? "" : v)}>
+          <Select value={filters.hasPhone || "all"} onValueChange={(v) => updateFilter("hasPhone", v === "all" ? "" : v)} disabled={isLoading}>
             <SelectTrigger className="h-9 text-xs">
               <SelectValue placeholder="Telefone" />
             </SelectTrigger>
@@ -201,14 +194,14 @@ export const ContactFilters = ({
             </SelectContent>
           </Select>
 
-          {bouncedContactIds.length > 0 && (
-            <Select value={filters.isBounced || "all"} onValueChange={(v) => updateFilter("isBounced", v === "all" ? "" : v)}>
+          {bouncedCount > 0 && (
+            <Select value={filters.isBounced || "all"} onValueChange={(v) => updateFilter("isBounced", v === "all" ? "" : v)} disabled={isLoading}>
               <SelectTrigger className="h-9 text-xs">
                 <SelectValue placeholder="Bounced" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="yes">Bounced ({bouncedContactIds.length})</SelectItem>
+                <SelectItem value="yes">Bounced ({bouncedCount})</SelectItem>
                 <SelectItem value="no">Não bounced</SelectItem>
               </SelectContent>
             </Select>
@@ -285,7 +278,7 @@ export const ContactFilters = ({
                   />
                 </Badge>
               )}
-              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs">
+              <Button variant="ghost" size="sm" onClick={clearFilters} className="h-6 text-xs" disabled={isLoading}>
                 Limpar filtros
               </Button>
             </>
@@ -300,18 +293,20 @@ export const ContactFilters = ({
               size="sm"
               onClick={onDeleteSelected}
               className="h-7 text-xs gap-1"
+              disabled={isLoading}
             >
               <Trash2 className="h-3 w-3" />
               Excluir {selectedCount} selecionado{selectedCount > 1 ? "s" : ""}
             </Button>
           )}
 
-          {activeFiltersCount > 0 && filteredCount > 0 && filteredCount < contacts.length && (
+          {activeFiltersCount > 0 && filteredCount > 0 && filteredCount < totalCount && (
             <Button
               variant="outline"
               size="sm"
               onClick={onDeleteFiltered}
               className="h-7 text-xs gap-1 border-destructive text-destructive hover:bg-destructive hover:text-destructive-foreground"
+              disabled={isLoading}
             >
               <Trash2 className="h-3 w-3" />
               Excluir {filteredCount} filtrado{filteredCount > 1 ? "s" : ""}
@@ -323,6 +318,68 @@ export const ContactFilters = ({
   );
 };
 
+// Legacy component for Index and LeadsPage that computes filter options from contacts
+import { LinkedInContact } from "@/types/contact";
+
+interface LegacyContactFiltersProps {
+  contacts: LinkedInContact[];
+  filters: ContactFiltersState;
+  onFiltersChange: (filters: ContactFiltersState) => void;
+  selectedCount: number;
+  onDeleteSelected: () => void;
+  onDeleteFiltered: () => void;
+  filteredCount: number;
+  bouncedContactIds?: string[];
+}
+
+export const LegacyContactFilters = ({
+  contacts,
+  filters,
+  onFiltersChange,
+  selectedCount,
+  onDeleteSelected,
+  onDeleteFiltered,
+  filteredCount,
+  bouncedContactIds = [],
+}: LegacyContactFiltersProps) => {
+  // Extract unique values for dropdowns from contacts
+  const filterOptions = useMemo(() => {
+    const jobTitles = new Set<string>();
+    const companies = new Set<string>();
+    const industries = new Set<string>();
+    const cities = new Set<string>();
+
+    contacts.forEach((c) => {
+      if (c.jobTitle) jobTitles.add(c.jobTitle);
+      if (c.companyName) companies.add(c.companyName);
+      if (c.industry) industries.add(c.industry);
+      if (c.city) cities.add(c.city);
+    });
+
+    return {
+      jobTitles: Array.from(jobTitles).sort(),
+      companies: Array.from(companies).sort(),
+      industries: Array.from(industries).sort(),
+      cities: Array.from(cities).sort(),
+    };
+  }, [contacts]);
+
+  return (
+    <ContactFilters
+      filters={filters}
+      onFiltersChange={onFiltersChange}
+      filterOptions={filterOptions}
+      selectedCount={selectedCount}
+      onDeleteSelected={onDeleteSelected}
+      onDeleteFiltered={onDeleteFiltered}
+      filteredCount={filteredCount}
+      totalCount={contacts.length}
+      bouncedCount={bouncedContactIds.length}
+    />
+  );
+};
+
+// Client-side filter function for legacy pages
 export const filterContacts = (
   contacts: LinkedInContact[],
   filters: ContactFiltersState,

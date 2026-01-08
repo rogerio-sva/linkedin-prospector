@@ -8,7 +8,7 @@ import { SearchHistory } from "@/components/SearchHistory";
 import { ExportMenu } from "@/components/ExportMenu";
 import { StatsCards } from "@/components/StatsCards";
 import { SearchProgress } from "@/components/SearchProgress";
-import { ContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
+import { LegacyContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
 import { BasesList, Base } from "@/components/BasesList";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { AddToBaseDialog } from "@/components/AddToBaseDialog";
@@ -635,7 +635,7 @@ const LeadsPage = () => {
             {/* Contact Filters */}
             {contacts.length > 0 && (
               <div className="mb-4">
-                <ContactFilters
+                <LegacyContactFilters
                   contacts={contacts}
                   filters={contactFilters}
                   onFiltersChange={setContactFilters}

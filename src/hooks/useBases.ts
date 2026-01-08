@@ -3,6 +3,44 @@ import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { Base } from '@/components/BasesList';
 import { LinkedInContact } from '@/types/contact';
+import { ContactFiltersState } from '@/components/ContactFilters';
+
+export interface PaginatedContactsResult {
+  contacts: LinkedInContact[];
+  totalCount: number;
+}
+
+const mapDbContactToLinkedInContact = (c: any): LinkedInContact => {
+  const fullData = (c.full_data as Record<string, unknown>) || {};
+  
+  const mappedContact: LinkedInContact = {
+    id: c.id,
+    firstName: c.first_name || '',
+    lastName: c.last_name || '',
+    fullName: c.full_name || '',
+    jobTitle: c.job_title || '',
+    email: c.email || '',
+    personalEmail: c.personal_email || '',
+    mobileNumber: c.mobile_number || '',
+    companyPhone: c.company_phone || '',
+    linkedin: c.linkedin_url || '',
+    companyName: c.company_name || '',
+    companyWebsite: c.company_website || '',
+    industry: c.industry || '',
+    city: c.city || '',
+    state: c.state || '',
+    country: c.country || '',
+    seniorityLevel: c.seniority_level || '',
+    createdAt: new Date(c.created_at),
+    ...(typeof fullData === 'object' ? fullData : {}),
+  };
+  
+  mappedContact.id = c.id;
+  mappedContact.linkedin = c.linkedin_url || '';
+  mappedContact.createdAt = new Date(c.created_at);
+  
+  return mappedContact;
+};
 
 export function useBases() {
   const [bases, setBases] = useState<Base[]>([]);
@@ -10,7 +48,6 @@ export function useBases() {
 
   const fetchBases = useCallback(async () => {
     try {
-      // Fetch bases with contact count
       const { data: basesData, error: basesError } = await supabase
         .from('bases')
         .select('*')
@@ -18,7 +55,6 @@ export function useBases() {
 
       if (basesError) throw basesError;
 
-      // Get contact counts for each base
       const basesWithCounts = await Promise.all(
         (basesData || []).map(async (base) => {
           const { count } = await supabase
@@ -92,7 +128,6 @@ export function useBases() {
     let duplicates = 0;
 
     try {
-      // Insert contacts one by one to handle duplicates gracefully
       for (const contact of contacts) {
         const contactData = {
           base_id: baseId,
@@ -121,7 +156,6 @@ export function useBases() {
             .insert([contactData]);
 
           if (error) {
-            // Check if it's a duplicate error
             if (error.code === '23505') {
               duplicates++;
             } else {
@@ -135,7 +169,6 @@ export function useBases() {
         }
       }
 
-      // Refresh bases to update counts
       await fetchBases();
 
       return { added, duplicates };
@@ -146,6 +179,120 @@ export function useBases() {
     }
   };
 
+  // New paginated function for server-side pagination
+  const loadBaseContactsPage = async (
+    baseId: string,
+    page: number,
+    pageSize: number,
+    filters: ContactFiltersState,
+    bouncedContactIds: string[] = []
+  ): Promise<PaginatedContactsResult> => {
+    try {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      // Build the query with filters applied server-side
+      let query = supabase
+        .from('contacts')
+        .select('*', { count: 'exact' })
+        .eq('base_id', baseId);
+
+      // Apply text search filter
+      if (filters.search) {
+        const searchTerm = `%${filters.search}%`;
+        query = query.or(
+          `full_name.ilike.${searchTerm},first_name.ilike.${searchTerm},last_name.ilike.${searchTerm},email.ilike.${searchTerm},personal_email.ilike.${searchTerm},company_name.ilike.${searchTerm},job_title.ilike.${searchTerm}`
+        );
+      }
+
+      // Apply exact match filters
+      if (filters.jobTitle) {
+        query = query.eq('job_title', filters.jobTitle);
+      }
+      if (filters.company) {
+        query = query.eq('company_name', filters.company);
+      }
+      if (filters.industry) {
+        query = query.eq('industry', filters.industry);
+      }
+      if (filters.city) {
+        query = query.eq('city', filters.city);
+      }
+
+      // Apply has email filter
+      if (filters.hasEmail === 'yes') {
+        query = query.not('email', 'is', null).neq('email', '');
+      } else if (filters.hasEmail === 'no') {
+        query = query.or('email.is.null,email.eq.');
+      }
+
+      // Apply has phone filter
+      if (filters.hasPhone === 'yes') {
+        query = query.or('mobile_number.neq.,company_phone.neq.');
+      } else if (filters.hasPhone === 'no') {
+        query = query.or('mobile_number.is.null,mobile_number.eq.').or('company_phone.is.null,company_phone.eq.');
+      }
+
+      // Apply bounced filter (needs to be done client-side for now)
+      if (filters.isBounced === 'yes' && bouncedContactIds.length > 0) {
+        query = query.in('id', bouncedContactIds);
+      } else if (filters.isBounced === 'no' && bouncedContactIds.length > 0) {
+        query = query.not('id', 'in', `(${bouncedContactIds.join(',')})`);
+      }
+
+      // Apply ordering and pagination
+      query = query.order('created_at', { ascending: false }).range(from, to);
+
+      const { data, error, count } = await query;
+
+      if (error) throw error;
+
+      return {
+        contacts: (data || []).map(mapDbContactToLinkedInContact),
+        totalCount: count || 0,
+      };
+    } catch (error) {
+      console.error('Error loading contacts page:', error);
+      toast.error('Erro ao carregar contatos');
+      return { contacts: [], totalCount: 0 };
+    }
+  };
+
+  // Get unique filter values for a base (for dropdown options)
+  const getFilterOptions = async (baseId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('contacts')
+        .select('job_title, company_name, industry, city')
+        .eq('base_id', baseId);
+
+      if (error) throw error;
+
+      const jobTitles = new Set<string>();
+      const companies = new Set<string>();
+      const industries = new Set<string>();
+      const cities = new Set<string>();
+
+      (data || []).forEach((c) => {
+        if (c.job_title) jobTitles.add(c.job_title);
+        if (c.company_name) companies.add(c.company_name);
+        if (c.industry) industries.add(c.industry);
+        if (c.city) cities.add(c.city);
+      });
+
+      return {
+        jobTitles: Array.from(jobTitles).sort(),
+        companies: Array.from(companies).sort(),
+        industries: Array.from(industries).sort(),
+        cities: Array.from(cities).sort(),
+      };
+    } catch (error) {
+      console.error('Error fetching filter options:', error);
+      return { jobTitles: [], companies: [], industries: [], cities: [] };
+    }
+  };
+
+  // Keep the old function for backwards compatibility (used by SendCampaignDialog)
   const loadBaseContacts = async (baseId: string): Promise<LinkedInContact[]> => {
     try {
       const PAGE_SIZE = 1000;
@@ -153,7 +300,6 @@ export function useBases() {
       let page = 0;
       let hasMore = true;
 
-      // Fetch all contacts in batches of 1000
       while (hasMore) {
         const from = page * PAGE_SIZE;
         const to = from + PAGE_SIZE - 1;
@@ -176,41 +322,7 @@ export function useBases() {
         }
       }
 
-      // Map database contacts to LinkedInContact format
-      return allData.map((c) => {
-        // Use full_data if available for complete contact info
-        const fullData = (c.full_data as Record<string, unknown>) || {};
-        
-        const mappedContact: LinkedInContact = {
-          id: c.id,
-          firstName: c.first_name || '',
-          lastName: c.last_name || '',
-          fullName: c.full_name || '',
-          jobTitle: c.job_title || '',
-          email: c.email || '',
-          personalEmail: c.personal_email || '',
-          mobileNumber: c.mobile_number || '',
-          companyPhone: c.company_phone || '',
-          linkedin: c.linkedin_url || '',
-          companyName: c.company_name || '',
-          companyWebsite: c.company_website || '',
-          industry: c.industry || '',
-          city: c.city || '',
-          state: c.state || '',
-          country: c.country || '',
-          seniorityLevel: c.seniority_level || '',
-          createdAt: new Date(c.created_at),
-          // Spread any additional fields from full_data (like headline, companySize, etc.)
-          ...(typeof fullData === 'object' ? fullData : {}),
-        };
-        
-        // Ensure our mapped values take precedence over full_data
-        mappedContact.id = c.id;
-        mappedContact.linkedin = c.linkedin_url || '';
-        mappedContact.createdAt = new Date(c.created_at);
-        
-        return mappedContact;
-      });
+      return allData.map(mapDbContactToLinkedInContact);
     } catch (error) {
       console.error('Error loading contacts:', error);
       toast.error('Erro ao carregar contatos da base');
@@ -300,6 +412,8 @@ export function useBases() {
     deleteBase,
     addContactsToBase,
     loadBaseContacts,
+    loadBaseContactsPage,
+    getFilterOptions,
     deleteContacts,
     getBouncedContactIds,
     updateContact,
