@@ -91,18 +91,36 @@ serve(async (req) => {
     let existingLinkedins = new Set<string>();
     
     if (skipExisting) {
-      const { data: existingContacts } = await supabase
-        .from('contacts')
-        .select('email, linkedin_url')
-        .eq('base_id', targetBaseId);
+      // Paginate through ALL existing contacts (Supabase default limit is 1000)
+      const PAGE_SIZE = 1000;
+      let page = 0;
+      let hasMore = true;
       
-      if (existingContacts) {
-        existingContacts.forEach(c => {
-          if (c.email) existingEmails.add(c.email.toLowerCase());
-          if (c.linkedin_url) existingLinkedins.add(c.linkedin_url.toLowerCase());
-        });
+      while (hasMore) {
+        const { data: existingContacts, error: fetchError } = await supabase
+          .from('contacts')
+          .select('email, linkedin_url')
+          .eq('base_id', targetBaseId)
+          .range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1);
+        
+        if (fetchError) {
+          console.error('Error fetching existing contacts:', fetchError);
+          break;
+        }
+        
+        if (existingContacts && existingContacts.length > 0) {
+          existingContacts.forEach(c => {
+            if (c.email) existingEmails.add(c.email.toLowerCase());
+            if (c.linkedin_url) existingLinkedins.add(c.linkedin_url.toLowerCase());
+          });
+          console.log(`Fetched page ${page + 1}: ${existingContacts.length} existing contacts`);
+          page++;
+          hasMore = existingContacts.length === PAGE_SIZE;
+        } else {
+          hasMore = false;
+        }
       }
-      console.log(`Found ${existingEmails.size} existing emails, ${existingLinkedins.size} existing linkedins`);
+      console.log(`Found ${existingEmails.size} existing emails, ${existingLinkedins.size} existing linkedins total`);
     }
 
     let totalAdded = 0;
