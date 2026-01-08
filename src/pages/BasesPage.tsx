@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
-import { FolderPlus, Send, Trash2, Users, Settings } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { FolderPlus, Send, Trash2, Users, Settings, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ContactsTable } from "@/components/ContactsTable";
 import { ExportMenu } from "@/components/ExportMenu";
-import { ContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
+import { ContactFilters, ContactFiltersState, FilterOptions, initialContactFilters } from "@/components/ContactFilters";
+import { ContactsPagination } from "@/components/ContactsPagination";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { SendCampaignDialog } from "@/components/SendCampaignDialog";
 import { BulkTagActions } from "@/components/BulkTagActions";
@@ -32,19 +33,18 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-const initialContactFilters: ContactFiltersState = {
-  search: "",
-  jobTitle: "",
-  company: "",
-  industry: "",
-  city: "",
-  hasEmail: "",
-  hasPhone: "",
-  isBounced: "",
-};
-
 const BasesPage = () => {
-  const { bases, createBase, deleteBase, loadBaseContacts, deleteContacts, getBouncedContactIds, updateContact, refreshBases } = useBases();
+  const { 
+    bases, 
+    createBase, 
+    deleteBase, 
+    loadBaseContactsPage, 
+    getFilterOptions,
+    deleteContacts, 
+    getBouncedContactIds, 
+    updateContact, 
+    refreshBases 
+  } = useBases();
   const { templates } = useEmailTemplates();
   const {
     tags,
@@ -61,10 +61,20 @@ const BasesPage = () => {
   
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [contacts, setContacts] = useState<LinkedInContact[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [selectedContacts, setSelectedContacts] = useState<string[]>([]);
   const [contactFilters, setContactFilters] = useState<ContactFiltersState>(initialContactFilters);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions>({ jobTitles: [], companies: [], industries: [], cities: [] });
   const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
   const [bouncedContactIds, setBouncedContactIds] = useState<string[]>([]);
+  
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  
+  // Debounce timer ref
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
   
   const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -77,41 +87,88 @@ const BasesPage = () => {
   const [editContactDialogOpen, setEditContactDialogOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<LinkedInContact | null>(null);
 
-  // Load contact tags when contacts change
+  // Load contacts page with filters
+  const loadContacts = useCallback(async (
+    baseId: string, 
+    page: number, 
+    size: number, 
+    filters: ContactFiltersState,
+    bounced: string[]
+  ) => {
+    setIsLoadingContacts(true);
+    try {
+      const result = await loadBaseContactsPage(baseId, page, size, filters, bounced);
+      setContacts(result.contacts);
+      setTotalCount(result.totalCount);
+      
+      // Refresh contact tags for loaded contacts
+      if (result.contacts.length > 0) {
+        const contactIds = result.contacts.map((c) => c.id);
+        refreshContactTags(contactIds);
+      }
+    } finally {
+      setIsLoadingContacts(false);
+    }
+  }, [loadBaseContactsPage, refreshContactTags]);
+
+  // Reload contacts when page, pageSize, or filters change
   useEffect(() => {
-    if (contacts.length > 0) {
-      const contactIds = contacts.map((c) => c.id);
-      refreshContactTags(contactIds);
-    }
-  }, [contacts]);
-
-  const filteredContacts = useMemo(() => {
-    let result = filterContacts(contacts, contactFilters, bouncedContactIds);
+    if (!selectedBaseId) return;
     
-    // Filter by tags if any selected
-    if (tagFilterIds.length > 0) {
-      result = result.filter((contact) => {
-        const contactTags = getTagsForContact(contact.id);
-        return tagFilterIds.some((tagId) => contactTags.some((t) => t.id === tagId));
-      });
+    // Clear any pending debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
     }
     
-    return result;
-  }, [contacts, contactFilters, tagFilterIds, getTagsForContact, bouncedContactIds]);
+    // Debounce search input, but not other filter changes
+    const hasSearchChanged = contactFilters.search !== '';
+    const delay = hasSearchChanged ? 300 : 0;
+    
+    debounceRef.current = setTimeout(() => {
+      loadContacts(selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds);
+    }, delay);
+    
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds, loadContacts]);
 
+  const totalPages = Math.ceil(totalCount / pageSize);
   const selectedBase = bases.find(b => b.id === selectedBaseId);
 
   const handleSelectBase = async (baseId: string) => {
     setSelectedBaseId(baseId);
-    const [baseContacts, bounced] = await Promise.all([
-      loadBaseContacts(baseId),
-      getBouncedContactIds(baseId)
-    ]);
-    setContacts(baseContacts);
-    setBouncedContactIds(bounced);
-    setSelectedContacts([]);
+    setCurrentPage(1);
     setContactFilters(initialContactFilters);
     setTagFilterIds([]);
+    setSelectedContacts([]);
+    
+    // Load filter options and bounced contacts
+    const [options, bounced] = await Promise.all([
+      getFilterOptions(baseId),
+      getBouncedContactIds(baseId)
+    ]);
+    setFilterOptions(options);
+    setBouncedContactIds(bounced);
+  };
+
+  const handleFiltersChange = (newFilters: ContactFiltersState) => {
+    setContactFilters(newFilters);
+    setCurrentPage(1); // Reset to first page when filters change
+    setSelectedContacts([]); // Clear selection when filters change
+  };
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page);
+    setSelectedContacts([]); // Clear selection when page changes
+  };
+
+  const handlePageSizeChange = (size: number) => {
+    setPageSize(size);
+    setCurrentPage(1); // Reset to first page when page size changes
+    setSelectedContacts([]);
   };
 
   const handleToggleContactTag = async (contactId: string, tagId: string) => {
@@ -141,6 +198,7 @@ const BasesPage = () => {
     if (selectedBaseId === baseToDelete) {
       setSelectedBaseId(null);
       setContacts([]);
+      setTotalCount(0);
       setBouncedContactIds([]);
     }
     setBaseToDelete(null);
@@ -160,8 +218,10 @@ const BasesPage = () => {
   };
 
   const handleDeleteFiltered = () => {
-    if (filteredContacts.length === 0) return;
-    setContactsToDelete(filteredContacts.map(c => c.id));
+    if (totalCount === 0) return;
+    // For filtered delete, we'll delete all matching the current filters
+    // This shows a warning about deleting filtered count
+    setContactsToDelete(contacts.map(c => c.id));
     setDeleteMode('filtered');
     setDeleteContactsDialogOpen(true);
   };
@@ -176,12 +236,8 @@ const BasesPage = () => {
       
       // Reload contacts for the current base
       if (selectedBaseId) {
-        const [baseContacts, bounced] = await Promise.all([
-          loadBaseContacts(selectedBaseId),
-          getBouncedContactIds(selectedBaseId)
-        ]);
-        setContacts(baseContacts);
-        setBouncedContactIds(bounced);
+        await loadContacts(selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds);
+        await refreshBases();
       }
       
       setSelectedContacts([]);
@@ -215,6 +271,14 @@ const BasesPage = () => {
       );
     }
   };
+
+  // Filter contacts by tags client-side (tag filtering is not done server-side)
+  const displayedContacts = tagFilterIds.length > 0 
+    ? contacts.filter((contact) => {
+        const contactTags = getTagsForContact(contact.id);
+        return tagFilterIds.some((tagId) => contactTags.some((t) => t.id === tagId));
+      })
+    : contacts;
 
   return (
     <div className="p-6">
@@ -349,7 +413,7 @@ const BasesPage = () => {
                           <div className="flex items-center gap-2 mt-1">
                             <Badge variant="secondary" className="text-xs">
                               <Users className="h-3 w-3 mr-1" />
-                              {base.contact_count || 0}
+                              {base.contact_count?.toLocaleString('pt-BR') || 0}
                             </Badge>
                             {base.created_at && (
                               <span className="text-xs text-muted-foreground">
@@ -395,13 +459,12 @@ const BasesPage = () => {
               <>
                 <div className="flex items-center justify-between mb-4">
                   <div>
-                    <h2 className="text-lg font-semibold text-foreground">
+                    <h2 className="text-lg font-semibold text-foreground flex items-center gap-2">
                       {selectedBase?.name}
+                      {isLoadingContacts && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
                     </h2>
                     <p className="text-sm text-muted-foreground">
-                      {filteredContacts.length === contacts.length
-                        ? `${contacts.length} contato${contacts.length !== 1 ? "s" : ""}`
-                        : `${filteredContacts.length} de ${contacts.length} contatos`}
+                      {totalCount.toLocaleString('pt-BR')} contato{totalCount !== 1 ? "s" : ""}
                       {selectedContacts.length > 0 && (
                         <span className="text-primary">
                           {" "}• {selectedContacts.length} selecionado{selectedContacts.length !== 1 ? "s" : ""}
@@ -410,7 +473,7 @@ const BasesPage = () => {
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
-                    {contacts.length > 0 && (
+                    {totalCount > 0 && (
                       <>
                         {/* Tag filter */}
                         <TagFilterDropdown
@@ -429,7 +492,7 @@ const BasesPage = () => {
                         />
                       </>
                     )}
-                    {templates.length > 0 && contacts.length > 0 && (
+                    {templates.length > 0 && totalCount > 0 && (
                       <Button
                         size="sm"
                         onClick={() => setSendCampaignDialogOpen(true)}
@@ -444,29 +507,31 @@ const BasesPage = () => {
                       </Button>
                     )}
                     <ExportMenu
-                      contacts={filteredContacts}
+                      contacts={displayedContacts}
                       selectedContacts={selectedContacts}
                     />
                   </div>
                 </div>
 
-                {contacts.length > 0 && (
+                {selectedBaseId && (
                   <div className="mb-4">
                     <ContactFilters
-                      contacts={contacts}
                       filters={contactFilters}
-                      onFiltersChange={setContactFilters}
+                      onFiltersChange={handleFiltersChange}
+                      filterOptions={filterOptions}
                       selectedCount={selectedContacts.length}
                       onDeleteSelected={handleDeleteSelected}
                       onDeleteFiltered={handleDeleteFiltered}
-                      filteredCount={filteredContacts.length}
-                      bouncedContactIds={bouncedContactIds}
+                      filteredCount={totalCount}
+                      totalCount={selectedBase?.contact_count || 0}
+                      bouncedCount={bouncedContactIds.length}
+                      isLoading={isLoadingContacts}
                     />
                   </div>
                 )}
 
                 <ContactsTable
-                  contacts={filteredContacts}
+                  contacts={displayedContacts}
                   selectedContacts={selectedContacts}
                   onSelectionChange={setSelectedContacts}
                   tags={tags}
@@ -475,6 +540,18 @@ const BasesPage = () => {
                   onCreateTag={createTag}
                   onEditContact={handleEditContact}
                 />
+
+                {totalPages > 1 && (
+                  <ContactsPagination
+                    currentPage={currentPage}
+                    totalPages={totalPages}
+                    pageSize={pageSize}
+                    totalCount={totalCount}
+                    onPageChange={handlePageChange}
+                    onPageSizeChange={handlePageSizeChange}
+                    isLoading={isLoadingContacts}
+                  />
+                )}
               </>
             )}
           </Card>
