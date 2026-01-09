@@ -89,7 +89,7 @@ const BasesPage = () => {
   const [editContactDialogOpen, setEditContactDialogOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<LinkedInContact | null>(null);
 
-  // Load contacts page with filters
+  // Load contacts page with filters (without refreshContactTags to avoid loop)
   const loadContacts = useCallback(async (
     baseId: string, 
     page: number, 
@@ -102,16 +102,18 @@ const BasesPage = () => {
       const result = await loadBaseContactsPage(baseId, page, size, filters, bounced);
       setContacts(result.contacts);
       setTotalCount(result.totalCount);
-      
-      // Refresh contact tags for loaded contacts
-      if (result.contacts.length > 0) {
-        const contactIds = result.contacts.map((c) => c.id);
-        refreshContactTags(contactIds);
-      }
     } finally {
       setIsLoadingContacts(false);
     }
-  }, [loadBaseContactsPage, refreshContactTags]);
+  }, [loadBaseContactsPage]);
+
+  // Refresh contact tags when contacts change (separate effect to avoid loop)
+  useEffect(() => {
+    if (contacts.length > 0) {
+      const contactIds = contacts.map((c) => c.id);
+      refreshContactTags(contactIds);
+    }
+  }, [contacts, refreshContactTags]);
 
   // Reload contacts when page, pageSize, or filters change
   useEffect(() => {
@@ -135,7 +137,8 @@ const BasesPage = () => {
         clearTimeout(debounceRef.current);
       }
     };
-  }, [selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds, loadContacts]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds]);
 
   const totalPages = Math.ceil(totalCount / pageSize);
   const selectedBase = bases.find(b => b.id === selectedBaseId);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -21,7 +21,7 @@ export const useTags = () => {
   const [contactTags, setContactTags] = useState<ContactTag[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchTags = async () => {
+  const fetchTags = useCallback(async () => {
     try {
       const { data, error } = await supabase
         .from("tags")
@@ -33,9 +33,9 @@ export const useTags = () => {
     } catch (error) {
       console.error("Error fetching tags:", error);
     }
-  };
+  }, []);
 
-  const fetchContactTags = async (contactIds?: string[]) => {
+  const fetchContactTags = useCallback(async (contactIds?: string[]) => {
     try {
       let query = supabase.from("contact_tags").select("*");
       
@@ -46,11 +46,18 @@ export const useTags = () => {
       const { data, error } = await query;
 
       if (error) throw error;
-      setContactTags(data || []);
+      setContactTags((prev) => {
+        // Merge new tags with existing ones to avoid losing tags from other contacts
+        if (contactIds && contactIds.length > 0) {
+          const otherTags = prev.filter(ct => !contactIds.includes(ct.contact_id));
+          return [...otherTags, ...(data || [])];
+        }
+        return data || [];
+      });
     } catch (error) {
       console.error("Error fetching contact tags:", error);
     }
-  };
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
