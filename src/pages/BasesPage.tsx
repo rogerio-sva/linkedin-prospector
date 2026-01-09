@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FolderPlus, Send, Trash2, Users, Settings, Loader2 } from "lucide-react";
+import { FolderPlus, Send, Trash2, Users, Settings, Loader2, Shield } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ContactsTable } from "@/components/ContactsTable";
@@ -8,6 +8,7 @@ import { ContactFilters, ContactFiltersState, FilterOptions, initialContactFilte
 import { ContactsPagination } from "@/components/ContactsPagination";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
 import { SendCampaignDialog } from "@/components/SendCampaignDialog";
+import { ValidateEmailsDialog } from "@/components/ValidateEmailsDialog";
 import { BulkTagActions } from "@/components/BulkTagActions";
 import { TagFilterDropdown } from "@/components/TagFilterDropdown";
 import { ManageTagsDialog } from "@/components/ManageTagsDialog";
@@ -81,6 +82,7 @@ const BasesPage = () => {
   const [baseToDelete, setBaseToDelete] = useState<string | null>(null);
   const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
   const [manageTagsDialogOpen, setManageTagsDialogOpen] = useState(false);
+  const [validateEmailsDialogOpen, setValidateEmailsDialogOpen] = useState(false);
   const [deleteContactsDialogOpen, setDeleteContactsDialogOpen] = useState(false);
   const [contactsToDelete, setContactsToDelete] = useState<string[]>([]);
   const [deleteMode, setDeleteMode] = useState<'selected' | 'filtered'>('selected');
@@ -356,6 +358,14 @@ const BasesPage = () => {
         onSave={handleSaveContact}
       />
 
+      {/* Validate Emails Dialog */}
+      <ValidateEmailsDialog
+        open={validateEmailsDialogOpen}
+        onOpenChange={setValidateEmailsDialogOpen}
+        baseId={selectedBaseId}
+        baseName={selectedBase?.name || ""}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -491,6 +501,16 @@ const BasesPage = () => {
                           onRemoveTag={removeTagFromContacts}
                         />
                       </>
+                    )}
+                    {totalCount > 0 && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setValidateEmailsDialogOpen(true)}
+                      >
+                        <Shield className="h-4 w-4 mr-2" />
+                        Validar Emails
+                      </Button>
                     )}
                     {templates.length > 0 && totalCount > 0 && (
                       <Button
