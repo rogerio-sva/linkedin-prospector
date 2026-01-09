@@ -328,6 +328,51 @@ export type Database = {
         }
         Relationships: []
       }
+      email_validations: {
+        Row: {
+          accept_all: boolean | null
+          created_at: string
+          disposable: boolean | null
+          email: string
+          free: boolean | null
+          id: string
+          reason: string | null
+          role: boolean | null
+          score: number | null
+          state: string | null
+          status: string
+          validated_at: string | null
+        }
+        Insert: {
+          accept_all?: boolean | null
+          created_at?: string
+          disposable?: boolean | null
+          email: string
+          free?: boolean | null
+          id?: string
+          reason?: string | null
+          role?: boolean | null
+          score?: number | null
+          state?: string | null
+          status: string
+          validated_at?: string | null
+        }
+        Update: {
+          accept_all?: boolean | null
+          created_at?: string
+          disposable?: boolean | null
+          email?: string
+          free?: boolean | null
+          id?: string
+          reason?: string | null
+          role?: boolean | null
+          score?: number | null
+          state?: string | null
+          status?: string
+          validated_at?: string | null
+        }
+        Relationships: []
+      }
       suppressed_emails: {
         Row: {
           bounce_type: string | null
