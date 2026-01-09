@@ -113,6 +113,21 @@ serve(async (req: Request): Promise<Response> => {
           bounce_type: event.data.bounce?.type || "unknown",
           bounce_message: event.data.bounce?.message || "Unknown bounce",
         };
+        
+        // Auto-add permanent bounces to suppression list
+        if (event.data.bounce?.type === "Permanent") {
+          const recipientEmail = event.data.to?.[0];
+          if (recipientEmail) {
+            console.log(`Adding permanent bounce to suppression list: ${recipientEmail}`);
+            await supabase.from("suppressed_emails").upsert({
+              email: recipientEmail,
+              reason: "hard_bounce",
+              source_contact_id: emailSend.id ? null : null, // We don't have contact_id here easily
+              bounce_type: event.data.bounce.type,
+              original_error: event.data.bounce.message,
+            }, { onConflict: "email" });
+          }
+        }
         break;
 
       case "email.complained":
@@ -120,6 +135,16 @@ serve(async (req: Request): Promise<Response> => {
           status: "complained",
           complained_at: now,
         };
+        
+        // Auto-add complaints to suppression list
+        const complainedEmail = event.data.to?.[0];
+        if (complainedEmail) {
+          console.log(`Adding complaint to suppression list: ${complainedEmail}`);
+          await supabase.from("suppressed_emails").upsert({
+            email: complainedEmail,
+            reason: "complaint",
+          }, { onConflict: "email" });
+        }
         break;
 
       case "email.delivery_delayed":

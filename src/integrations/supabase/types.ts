@@ -328,6 +328,44 @@ export type Database = {
         }
         Relationships: []
       }
+      suppressed_emails: {
+        Row: {
+          bounce_type: string | null
+          created_at: string
+          email: string
+          id: string
+          original_error: string | null
+          reason: string
+          source_contact_id: string | null
+        }
+        Insert: {
+          bounce_type?: string | null
+          created_at?: string
+          email: string
+          id?: string
+          original_error?: string | null
+          reason: string
+          source_contact_id?: string | null
+        }
+        Update: {
+          bounce_type?: string | null
+          created_at?: string
+          email?: string
+          id?: string
+          original_error?: string | null
+          reason?: string
+          source_contact_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suppressed_emails_source_contact_id_fkey"
+            columns: ["source_contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       tags: {
         Row: {
           color: string

@@ -89,22 +89,57 @@ async function sendEmailsWithBatchAPI(
   fromName: string,
   replyTo: string,
   emailType: string
-): Promise<{ sent: number; failed: number; errors: string[] }> {
+): Promise<{ sent: number; failed: number; suppressed: number; errors: string[] }> {
   console.log(`[BatchAPI] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
+  
+  // Fetch suppressed emails to filter out
+  const emailsToCheck = contactsWithEmail.map(c => {
+    if (emailType === "personal") return c.personal_email;
+    if (emailType === "corporate") return c.email;
+    return c.personal_email || c.email;
+  }).filter(Boolean) as string[];
+  
+  const { data: suppressedEmails } = await supabase
+    .from("suppressed_emails")
+    .select("email")
+    .in("email", emailsToCheck);
+  
+  const suppressedSet = new Set((suppressedEmails || []).map((s: { email: string }) => s.email.toLowerCase()));
+  console.log(`[BatchAPI] Found ${suppressedSet.size} suppressed emails to skip`);
+  
+  // Filter out suppressed contacts
+  const filteredContacts = contactsWithEmail.filter(c => {
+    const targetEmail = emailType === "personal" 
+      ? c.personal_email 
+      : emailType === "corporate" 
+        ? c.email 
+        : (c.personal_email || c.email);
+    return targetEmail && !suppressedSet.has(targetEmail.toLowerCase());
+  });
+  
+  const suppressedCount = contactsWithEmail.length - filteredContacts.length;
+  console.log(`[BatchAPI] Filtered ${suppressedCount} suppressed contacts, ${filteredContacts.length} remaining`);
   
   const results = {
     sent: 0,
     failed: 0,
+    suppressed: suppressedCount,
     errors: [] as string[],
   };
+
+  // If all contacts are suppressed, return early
+  if (filteredContacts.length === 0) {
+    console.log(`[BatchAPI] All contacts are suppressed, nothing to send`);
+    return results;
+  }
 
   const BATCH_SIZE = 100; // Resend allows up to 100 emails per batch request
   
   // Split contacts into batches of 100
-  for (let i = 0; i < contactsWithEmail.length; i += BATCH_SIZE) {
-    const batchContacts = contactsWithEmail.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < filteredContacts.length; i += BATCH_SIZE) {
+    const batchContacts = filteredContacts.slice(i, i + BATCH_SIZE);
     const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-    const totalBatches = Math.ceil(contactsWithEmail.length / BATCH_SIZE);
+    const totalBatches = Math.ceil(filteredContacts.length / BATCH_SIZE);
     
     console.log(`[BatchAPI] Processing batch ${batchNumber}/${totalBatches} (${batchContacts.length} emails)`);
     
@@ -245,7 +280,7 @@ async function sendEmailsWithBatchAPI(
     }
     
     // Small delay between batch requests to avoid rate limits (100ms)
-    if (i + BATCH_SIZE < contactsWithEmail.length) {
+    if (i + BATCH_SIZE < filteredContacts.length) {
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
   }
@@ -391,6 +426,7 @@ serve(async (req: Request): Promise<Response> => {
           batchMode: true,
           sent: results.sent,
           failed: results.failed,
+          suppressed: results.suppressed,
           errors: results.errors,
         }),
         {
