@@ -181,11 +181,13 @@ async function sendEmailsWithBatchAPI(
       }
       
       // Process successful batch response
-      if (batchResponse.data && Array.isArray(batchResponse.data)) {
+      // Resend Batch API returns {"data":{"data":[...]}} structure
+      const responseData = (batchResponse.data as any)?.data || batchResponse.data;
+      if (responseData && Array.isArray(responseData)) {
         const emailEntries = Array.from(contactMap.entries());
         
-        for (let j = 0; j < batchResponse.data.length; j++) {
-          const result = batchResponse.data[j];
+        for (let j = 0; j < responseData.length; j++) {
+          const result = responseData[j];
           const [email, data] = emailEntries[j];
           
           if (result.id) {
