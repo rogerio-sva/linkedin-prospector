@@ -89,16 +89,17 @@ async function sendEmailsWithBatchAPI(
   fromName: string,
   replyTo: string,
   emailType: string
-): Promise<{ sent: number; failed: number; suppressed: number; errors: string[] }> {
+): Promise<{ sent: number; failed: number; suppressed: number; invalidEmails: number; errors: string[] }> {
   console.log(`[BatchAPI] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
   
-  // Fetch suppressed emails to filter out
+  // Get emails to check
   const emailsToCheck = contactsWithEmail.map(c => {
     if (emailType === "personal") return c.personal_email;
     if (emailType === "corporate") return c.email;
     return c.personal_email || c.email;
   }).filter(Boolean) as string[];
   
+  // Fetch suppressed emails to filter out
   const { data: suppressedEmails } = await supabase
     .from("suppressed_emails")
     .select("email")
@@ -107,8 +108,21 @@ async function sendEmailsWithBatchAPI(
   const suppressedSet = new Set((suppressedEmails || []).map((s: { email: string }) => s.email.toLowerCase()));
   console.log(`[BatchAPI] Found ${suppressedSet.size} suppressed emails to skip`);
   
-  // Filter out suppressed contacts
-  const filteredContacts = contactsWithEmail.filter(c => {
+  // Fetch email validations to filter out undeliverable emails
+  const { data: emailValidations } = await supabase
+    .from("email_validations")
+    .select("email, status")
+    .in("email", emailsToCheck);
+  
+  const undeliverableSet = new Set(
+    (emailValidations || [])
+      .filter((v: { email: string; status: string }) => v.status === "undeliverable")
+      .map((v: { email: string }) => v.email.toLowerCase())
+  );
+  console.log(`[BatchAPI] Found ${undeliverableSet.size} undeliverable emails to skip`);
+  
+  // Filter out suppressed and undeliverable contacts
+  let filteredContacts = contactsWithEmail.filter(c => {
     const targetEmail = emailType === "personal" 
       ? c.personal_email 
       : emailType === "corporate" 
@@ -118,18 +132,32 @@ async function sendEmailsWithBatchAPI(
   });
   
   const suppressedCount = contactsWithEmail.length - filteredContacts.length;
-  console.log(`[BatchAPI] Filtered ${suppressedCount} suppressed contacts, ${filteredContacts.length} remaining`);
+  
+  // Now filter out undeliverable emails
+  const beforeUndeliverableFilter = filteredContacts.length;
+  filteredContacts = filteredContacts.filter(c => {
+    const targetEmail = emailType === "personal" 
+      ? c.personal_email 
+      : emailType === "corporate" 
+        ? c.email 
+        : (c.personal_email || c.email);
+    return targetEmail && !undeliverableSet.has(targetEmail.toLowerCase());
+  });
+  
+  const invalidEmailsCount = beforeUndeliverableFilter - filteredContacts.length;
+  console.log(`[BatchAPI] Filtered ${suppressedCount} suppressed, ${invalidEmailsCount} undeliverable, ${filteredContacts.length} remaining`);
   
   const results = {
     sent: 0,
     failed: 0,
     suppressed: suppressedCount,
+    invalidEmails: invalidEmailsCount,
     errors: [] as string[],
   };
 
-  // If all contacts are suppressed, return early
+  // If all contacts are filtered out, return early
   if (filteredContacts.length === 0) {
-    console.log(`[BatchAPI] All contacts are suppressed, nothing to send`);
+    console.log(`[BatchAPI] All contacts are filtered out, nothing to send`);
     return results;
   }
 
@@ -427,6 +455,7 @@ serve(async (req: Request): Promise<Response> => {
           sent: results.sent,
           failed: results.failed,
           suppressed: results.suppressed,
+          invalidEmails: results.invalidEmails,
           errors: results.errors,
         }),
         {

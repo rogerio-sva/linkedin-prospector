@@ -12,7 +12,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
-import { AlertTriangle, Mail, Send, Users, Loader2, CheckCircle2, XCircle, Pause, Play } from "lucide-react";
+import { AlertTriangle, Mail, Send, Users, Loader2, CheckCircle2, XCircle, Pause, Play, ShieldCheck, ShieldAlert } from "lucide-react";
 import {
   Select,
   SelectContent,
@@ -43,6 +43,7 @@ interface BatchProgress {
   totalEmails: number;
   failedEmails: number;
   suppressedEmails: number;
+  invalidEmails: number;
   status: "idle" | "sending" | "paused" | "completed" | "error";
   currentBatchStatus: string;
   errors: string[];
@@ -69,6 +70,14 @@ export const SendCampaignDialog = ({
   // State for loaded contacts when base is selected in dialog
   const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
+  
+  // Email validation stats
+  const [validationStats, setValidationStats] = useState<{
+    undeliverable: number;
+    risky: number;
+    unknown: number;
+    deliverable: number;
+  }>({ undeliverable: 0, risky: 0, unknown: 0, deliverable: 0 });
   const [alreadySentCount, setAlreadySentCount] = useState(0);
 
   // Batch sending state
@@ -79,6 +88,7 @@ export const SendCampaignDialog = ({
     totalEmails: 0,
     failedEmails: 0,
     suppressedEmails: 0,
+    invalidEmails: 0,
     status: "idle",
     currentBatchStatus: "",
     errors: [],
@@ -204,12 +214,14 @@ export const SendCampaignDialog = ({
         totalEmails: 0,
         failedEmails: 0,
         suppressedEmails: 0,
+        invalidEmails: 0,
         status: "idle",
         currentBatchStatus: "",
         errors: [],
       });
       setIsPaused(false);
       setCampaignId(null);
+      setValidationStats({ undeliverable: 0, risky: 0, unknown: 0, deliverable: 0 });
     }
   }, [open, initialBaseId, initialSelectedContacts.length, initialContacts.length]);
 
@@ -224,6 +236,49 @@ export const SendCampaignDialog = ({
       return c.email || c.personalEmail;
     });
   }, [contacts, selectedContacts, sendToSelected, emailType]);
+
+  // Load validation stats when contacts change
+  useEffect(() => {
+    const loadValidationStats = async () => {
+      if (contactsWithEmail.length === 0) {
+        setValidationStats({ undeliverable: 0, risky: 0, unknown: 0, deliverable: 0 });
+        return;
+      }
+
+      const emails = contactsWithEmail.map(c => {
+        if (emailType === "personal") return c.personalEmail;
+        if (emailType === "corporate") return c.email;
+        return c.personalEmail || c.email;
+      }).filter(Boolean) as string[];
+
+      // Query in batches to avoid URL length limits
+      const batchSize = 100;
+      let allValidations: { email: string; status: string }[] = [];
+
+      for (let i = 0; i < emails.length; i += batchSize) {
+        const batch = emails.slice(i, i + batchSize);
+        const { data, error } = await supabase
+          .from("email_validations")
+          .select("email, status")
+          .in("email", batch);
+
+        if (!error && data) {
+          allValidations = [...allValidations, ...data];
+        }
+      }
+
+      const stats = {
+        undeliverable: allValidations.filter(v => v.status === "undeliverable").length,
+        risky: allValidations.filter(v => v.status === "risky").length,
+        unknown: allValidations.filter(v => v.status === "unknown").length,
+        deliverable: allValidations.filter(v => v.status === "deliverable").length,
+      };
+
+      setValidationStats(stats);
+    };
+
+    loadValidationStats();
+  }, [contactsWithEmail, emailType]);
 
   // Split contacts into batches
   const batches = useMemo(() => {
@@ -253,6 +308,7 @@ export const SendCampaignDialog = ({
       totalEmails: contactsWithEmail.length,
       failedEmails: 0,
       suppressedEmails: 0,
+      invalidEmails: 0,
       status: "sending",
       currentBatchStatus: "Iniciando campanha...",
       errors: [],
@@ -286,6 +342,7 @@ export const SendCampaignDialog = ({
       let totalSent = 0;
       let totalFailed = 0;
       let totalSuppressed = 0;
+      let totalInvalid = 0;
       const allErrors: string[] = [];
 
       for (let i = 0; i < batches.length; i++) {
@@ -333,6 +390,7 @@ export const SendCampaignDialog = ({
           totalSent += data.sent || 0;
           totalFailed += data.failed || 0;
           totalSuppressed += data.suppressed || 0;
+          totalInvalid += data.invalidEmails || 0;
           
           if (data.errors && data.errors.length > 0) {
             allErrors.push(...data.errors);
@@ -343,6 +401,7 @@ export const SendCampaignDialog = ({
             sentEmails: totalSent,
             failedEmails: totalFailed,
             suppressedEmails: totalSuppressed,
+            invalidEmails: totalInvalid,
             errors: allErrors,
           }));
 
@@ -373,10 +432,11 @@ export const SendCampaignDialog = ({
         .eq("id", currentCampaignId);
 
       const suppressedMsg = totalSuppressed > 0 ? `, ${totalSuppressed} suprimidos` : "";
+      const invalidMsg = totalInvalid > 0 ? `, ${totalInvalid} inválidos` : "";
       setBatchProgress(prev => ({
         ...prev,
         status: "completed",
-        currentBatchStatus: `Concluído! ${totalSent} enviados, ${totalFailed} falhas${suppressedMsg}.`,
+        currentBatchStatus: `Concluído! ${totalSent} enviados, ${totalFailed} falhas${suppressedMsg}${invalidMsg}.`,
       }));
 
       toast.success(`Campanha concluída! ${totalSent} emails enviados.`);
@@ -473,6 +533,12 @@ export const SendCampaignDialog = ({
                 {batchProgress.suppressedEmails > 0 && (
                   <p className="text-xs text-amber-600">
                     {batchProgress.suppressedEmails} emails suprimidos (bounces/complaints)
+                  </p>
+                )}
+
+                {batchProgress.invalidEmails > 0 && (
+                  <p className="text-xs text-orange-600">
+                    {batchProgress.invalidEmails} emails inválidos bloqueados (validação)
                   </p>
                 )}
 
@@ -718,6 +784,39 @@ export const SendCampaignDialog = ({
               )}
             </div>
           </Card>
+
+          {/* Email Validation Status */}
+          {(validationStats.undeliverable > 0 || validationStats.risky > 0 || validationStats.deliverable > 0) && (
+            <Card className="p-3 border-green-500/50 bg-green-500/10">
+              <div className="flex gap-2">
+                <ShieldCheck className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs space-y-1">
+                  <p className="font-medium text-green-700 dark:text-green-400">
+                    Status de Validação de Emails
+                  </p>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground">
+                    {validationStats.deliverable > 0 && (
+                      <span className="text-green-600">{validationStats.deliverable} válidos</span>
+                    )}
+                    {validationStats.undeliverable > 0 && (
+                      <span className="text-red-600">{validationStats.undeliverable} inválidos (bloqueados)</span>
+                    )}
+                    {validationStats.risky > 0 && (
+                      <span className="text-amber-600">{validationStats.risky} arriscados</span>
+                    )}
+                    {validationStats.unknown > 0 && (
+                      <span className="text-gray-600">{validationStats.unknown} não verificados</span>
+                    )}
+                  </div>
+                  {validationStats.undeliverable > 0 && (
+                    <p className="text-green-700 dark:text-green-400 mt-1">
+                      ✓ Emails inválidos serão bloqueados automaticamente
+                    </p>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
 
           {/* Warning */}
           <Card className="p-3 border-amber-500/50 bg-amber-500/10">
