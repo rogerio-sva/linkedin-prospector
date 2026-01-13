@@ -66,6 +66,7 @@ export const SendCampaignDialog = ({
   const [fromName, setFromName] = useState("");
   const [sendToSelected, setSendToSelected] = useState(initialSelectedContacts.length > 0);
   const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
+  const [emailFormat, setEmailFormat] = useState<"text" | "html">("text");
   
   // State for loaded contacts when base is selected in dialog
   const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
@@ -373,6 +374,7 @@ export const SendCampaignDialog = ({
               fromEmail: fromEmail.trim(),
               fromName: fromName.trim(),
               emailType: emailType,
+              emailFormat: emailFormat,
               contactIds: batchContactIds,
               campaignId: currentCampaignId,
               batchMode: true, // Tell the function to process synchronously
@@ -677,6 +679,39 @@ export const SendCampaignDialog = ({
               {emailType === "both" 
                 ? "Envia para email pessoal, ou corporativo se não tiver pessoal."
                 : `Envia apenas para contatos com email ${emailType === "personal" ? "pessoal" : "corporativo"}.`}
+            </p>
+          </div>
+
+          {/* Email Format Selection */}
+          <div className="space-y-2">
+            <Label>Formato do Email *</Label>
+            <Select 
+              value={emailFormat} 
+              onValueChange={(v: "text" | "html") => setEmailFormat(v)}
+              disabled={isSending}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    <span>Texto Puro (Recomendado)</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="html">
+                  <div className="flex items-center gap-2">
+                    <Mail className="h-3 w-3" />
+                    <span>HTML Formatado</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              {emailFormat === "text" 
+                ? "✓ Texto puro tem maior chance de chegar na caixa de entrada principal."
+                : "⚠️ HTML pode ser classificado como promoção pelo Gmail."}
             </p>
           </div>
 

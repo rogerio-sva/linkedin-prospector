@@ -17,6 +17,7 @@ interface EmailRequest {
   fromName: string;
   replyTo?: string;
   emailType?: "personal" | "corporate" | "both";
+  emailFormat?: "text" | "html";
   contactIds?: string[];
   batchMode?: boolean;
   testRecipient?: {
@@ -52,7 +53,8 @@ interface BatchEmailItem {
   to: string[];
   reply_to: string;
   subject: string;
-  html: string;
+  html?: string;
+  text?: string;
 }
 
 function renderTemplate(template: Template, contact: Contact): { subject: string; body: string } {
@@ -88,7 +90,8 @@ async function sendEmailsWithBatchAPI(
   fromEmail: string,
   fromName: string,
   replyTo: string,
-  emailType: string
+  emailType: string,
+  emailFormat: "text" | "html" = "text"
 ): Promise<{ sent: number; failed: number; suppressed: number; invalidEmails: number; errors: string[] }> {
   console.log(`[BatchAPI] Sending ${contactsWithEmail.length} emails for campaign ${campaignId}`);
   
@@ -172,7 +175,7 @@ async function sendEmailsWithBatchAPI(
     console.log(`[BatchAPI] Processing batch ${batchNumber}/${totalBatches} (${batchContacts.length} emails)`);
     
     // Prepare batch email data
-    const batchEmails: BatchEmailItem[] = [];
+    const batchEmails: any[] = [];
     const contactMap: Map<string, { contact: Contact; recipientEmail: string; recipientName: string; subject: string; body: string }> = new Map();
     
     for (const contact of batchContacts) {
@@ -187,25 +190,33 @@ async function sendEmailsWithBatchAPI(
       const recipientName = contact.full_name || contact.first_name || "Contato";
       
       const { subject, body } = renderTemplate(template, contact);
-      const htmlBody = body
-        .split("\n")
-        .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
-        .join("");
       
-      batchEmails.push({
+      // Build email based on format
+      const emailPayload: any = {
         from: `${fromName} <${fromEmail}>`,
         to: [recipientEmail],
         reply_to: replyTo,
         subject: subject,
-        html: htmlBody,
-      });
+      };
+      
+      if (emailFormat === "html") {
+        emailPayload.html = body
+          .split("\n")
+          .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
+          .join("");
+      } else {
+        // Plain text - better for deliverability
+        emailPayload.text = body;
+      }
+      
+      batchEmails.push(emailPayload);
       
       contactMap.set(recipientEmail, { contact, recipientEmail, recipientName, subject, body });
     }
     
     try {
       // Use Resend Batch API
-      console.log(`[BatchAPI] Sending batch request with ${batchEmails.length} emails...`);
+      console.log(`[BatchAPI] Sending batch request with ${batchEmails.length} emails (format: ${emailFormat})...`);
       const batchResponse = await resend.batch.send(batchEmails);
       
       console.log(`[BatchAPI] Batch response:`, JSON.stringify(batchResponse));
@@ -333,7 +344,8 @@ serve(async (req: Request): Promise<Response> => {
       fromEmail, 
       fromName, 
       replyTo, 
-      emailType = "personal", 
+      emailType = "personal",
+      emailFormat = "text",
       contactIds, 
       campaignId, 
       batchMode = false,
@@ -342,7 +354,7 @@ serve(async (req: Request): Promise<Response> => {
       testBody 
     }: EmailRequest = await req.json();
 
-    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, batchMode, contactIdsCount: contactIds?.length, testRecipient });
+    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, emailFormat, batchMode, contactIdsCount: contactIds?.length, testRecipient });
 
     if (!fromEmail || !fromName) {
       throw new Error("Campos obrigatórios: fromEmail, fromName");
@@ -350,20 +362,25 @@ serve(async (req: Request): Promise<Response> => {
 
     // Handle direct test send (synchronous - quick)
     if (testRecipient && testSubject && testBody) {
-      console.log(`Sending test email to ${testRecipient.email}...`);
+      console.log(`Sending test email to ${testRecipient.email} (format: ${emailFormat})...`);
       
-      const htmlBody = testBody
-        .split("\n")
-        .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
-        .join("");
-
-      const emailResponse = await resend.emails.send({
+      const emailPayload: any = {
         from: `${fromName} <${fromEmail}>`,
         to: [testRecipient.email],
         reply_to: replyTo || fromEmail,
         subject: testSubject,
-        html: htmlBody,
-      });
+      };
+      
+      if (emailFormat === "html") {
+        emailPayload.html = testBody
+          .split("\n")
+          .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
+          .join("");
+      } else {
+        emailPayload.text = testBody;
+      }
+
+      const emailResponse = await resend.emails.send(emailPayload);
 
       console.log("Test email sent:", emailResponse);
 
@@ -445,7 +462,8 @@ serve(async (req: Request): Promise<Response> => {
         fromEmail,
         fromName,
         replyTo || fromEmail,
-        emailType
+        emailType,
+        emailFormat
       );
 
       return new Response(
@@ -555,7 +573,8 @@ serve(async (req: Request): Promise<Response> => {
       fromEmail,
       fromName,
       replyTo || fromEmail,
-      emailType
+      emailType,
+      emailFormat
     );
 
     // Update campaign status
