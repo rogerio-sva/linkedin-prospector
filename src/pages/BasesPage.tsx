@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FolderPlus, Send, Trash2, Users, Settings, Loader2, Shield } from "lucide-react";
+import { FolderPlus, Send, Trash2, Users, Settings, Loader2, Shield, FileSpreadsheet } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ContactsTable } from "@/components/ContactsTable";
@@ -13,6 +13,7 @@ import { BulkTagActions } from "@/components/BulkTagActions";
 import { TagFilterDropdown } from "@/components/TagFilterDropdown";
 import { ManageTagsDialog } from "@/components/ManageTagsDialog";
 import { EditContactDialog, ContactUpdates } from "@/components/EditContactDialog";
+import { ImportXLSDialog } from "@/components/ImportXLSDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
 import { useTags } from "@/hooks/useTags";
@@ -88,6 +89,7 @@ const BasesPage = () => {
   const [deleteMode, setDeleteMode] = useState<'selected' | 'filtered'>('selected');
   const [editContactDialogOpen, setEditContactDialogOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<LinkedInContact | null>(null);
+  const [importXLSDialogOpen, setImportXLSDialogOpen] = useState(false);
 
   // Load contacts page with filters (without refreshContactTags to avoid loop)
   const loadContacts = useCallback(async (
@@ -369,6 +371,18 @@ const BasesPage = () => {
         baseName={selectedBase?.name || ""}
       />
 
+      {/* Import XLS Dialog */}
+      <ImportXLSDialog
+        open={importXLSDialogOpen}
+        onOpenChange={setImportXLSDialogOpen}
+        existingBases={bases.map(b => ({ id: b.id, name: b.name }))}
+        onImportComplete={(baseId, baseName) => {
+          refreshBases();
+          handleSelectBase(baseId);
+          toast.success(`Base "${baseName}" importada com sucesso!`);
+        }}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -379,6 +393,10 @@ const BasesPage = () => {
           <Button variant="outline" size="sm" onClick={() => setManageTagsDialogOpen(true)}>
             <Settings className="h-4 w-4 mr-2" />
             Tags
+          </Button>
+          <Button variant="outline" onClick={() => setImportXLSDialogOpen(true)}>
+            <FileSpreadsheet className="h-4 w-4 mr-2" />
+            Importar XLS
           </Button>
           <Button onClick={() => setCreateBaseDialogOpen(true)}>
             <FolderPlus className="h-4 w-4 mr-2" />
