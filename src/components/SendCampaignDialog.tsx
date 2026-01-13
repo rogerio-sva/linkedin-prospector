@@ -64,6 +64,7 @@ export const SendCampaignDialog = ({
   const [selectedSendBaseId, setSelectedSendBaseId] = useState<string>(initialBaseId || "");
   const [fromEmail, setFromEmail] = useState("");
   const [fromName, setFromName] = useState("");
+  const [replyTo, setReplyTo] = useState("");
   const [sendToSelected, setSendToSelected] = useState(initialSelectedContacts.length > 0);
   const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
   const [emailFormat, setEmailFormat] = useState<"text" | "html">("text");
@@ -373,6 +374,7 @@ export const SendCampaignDialog = ({
               baseId: selectedSendBaseId,
               fromEmail: fromEmail.trim(),
               fromName: fromName.trim(),
+              replyTo: replyTo.trim() || undefined,
               emailType: emailType,
               emailFormat: emailFormat,
               contactIds: batchContactIds,
@@ -760,6 +762,22 @@ export const SendCampaignDialog = ({
               placeholder="Ex: João da Empresa XYZ"
               disabled={isSending}
             />
+          </div>
+
+          {/* Reply-To Email */}
+          <div className="space-y-2">
+            <Label htmlFor="replyTo">Email para Respostas (Reply-To)</Label>
+            <Input
+              id="replyTo"
+              type="email"
+              value={replyTo}
+              onChange={(e) => setReplyTo(e.target.value)}
+              placeholder="respostas@dominio.com (opcional)"
+              disabled={isSending}
+            />
+            <p className="text-xs text-muted-foreground">
+              Se preenchido, respostas serão enviadas para este email. Se vazio, usa o email remetente.
+            </p>
           </div>
 
           {/* Summary */}
