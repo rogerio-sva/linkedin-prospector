@@ -40,8 +40,10 @@ interface ImportXLSDialogProps {
   existingBases?: { id: string; name: string }[];
 }
 
+const IGNORE_VALUE = "__ignore__";
+
 const TARGET_FIELDS = [
-  { value: "", label: "-- Ignorar --" },
+  { value: IGNORE_VALUE, label: "-- Ignorar --" },
   { value: "full_name", label: "Nome Completo" },
   { value: "email", label: "Email Corporativo" },
   { value: "personal_email", label: "Email Pessoal" },
@@ -145,7 +147,7 @@ export function ImportXLSDialog({
   const handleMappingChange = (header: string, targetField: string) => {
     setMapping((prev) => {
       const newMapping = { ...prev };
-      if (targetField) {
+      if (targetField && targetField !== IGNORE_VALUE) {
         newMapping[header] = targetField;
       } else {
         delete newMapping[header];
@@ -424,7 +426,7 @@ export function ImportXLSDialog({
                           <TableCell className="font-medium">{header}</TableCell>
                           <TableCell>
                             <Select
-                              value={mapping[header] || ""}
+                              value={mapping[header] || IGNORE_VALUE}
                               onValueChange={(value) => handleMappingChange(header, value)}
                             >
                               <SelectTrigger className="h-8">
