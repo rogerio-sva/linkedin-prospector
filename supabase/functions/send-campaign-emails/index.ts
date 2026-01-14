@@ -57,6 +57,18 @@ interface BatchEmailItem {
   text?: string;
 }
 
+// Sanitize name to prevent "Invalid to field" errors from Resend
+function sanitizeName(name: string | null | undefined): string {
+  if (!name) return "";
+  
+  // Remove characters that break RFC 5322 email format
+  return name
+    .replace(/[<>,"';\\[\]()]/g, '') // Remove problematic characters
+    .replace(/\s+/g, ' ')             // Normalize whitespace
+    .trim()
+    .substring(0, 50);                // Limit length
+}
+
 function renderTemplate(template: Template, contact: Contact): { subject: string; body: string } {
   const replacements: Record<string, string> = {
     firstName: contact.first_name || "",
@@ -188,7 +200,7 @@ async function sendEmailsWithBatchAPI(
       } else {
         recipientEmail = contact.personal_email || contact.email!;
       }
-      const recipientName = contact.full_name || contact.first_name || "Contato";
+      const recipientName = sanitizeName(contact.full_name || contact.first_name) || "Contato";
       
       const { subject, body } = renderTemplate(template, contact);
       
