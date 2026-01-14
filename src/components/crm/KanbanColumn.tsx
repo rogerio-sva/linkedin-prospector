@@ -2,10 +2,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { KanbanCard } from "./KanbanCard";
 import { CRMContact, CRMStage } from "@/hooks/useCRM";
+import { Tag, ContactTag } from "@/hooks/useTags";
 
 interface KanbanColumnProps {
   stage: CRMStage;
   contacts: CRMContact[];
+  tags: Tag[];
+  contactTags: ContactTag[];
   onOpenDetail: (contact: CRMContact) => void;
   onMarkLinkedIn: (contactId: string) => void;
   onDropContact: (contactId: string, stage: string) => void;
@@ -13,7 +16,9 @@ interface KanbanColumnProps {
 
 export function KanbanColumn({ 
   stage, 
-  contacts, 
+  contacts,
+  tags,
+  contactTags,
   onOpenDetail, 
   onMarkLinkedIn,
   onDropContact 
@@ -38,6 +43,13 @@ export function KanbanColumn({
 
   const handleDragStart = (e: React.DragEvent, contactId: string) => {
     e.dataTransfer.setData("contactId", contactId);
+  };
+
+  const getTagsForContact = (contactId: string): Tag[] => {
+    const tagIds = contactTags
+      .filter((ct) => ct.contact_id === contactId)
+      .map((ct) => ct.tag_id);
+    return tags.filter((t) => tagIds.includes(t.id));
   };
 
   return (
@@ -74,6 +86,7 @@ export function KanbanColumn({
             >
               <KanbanCard
                 contact={contact}
+                contactTags={getTagsForContact(contact.id)}
                 onOpenDetail={onOpenDetail}
                 onMarkLinkedIn={onMarkLinkedIn}
               />

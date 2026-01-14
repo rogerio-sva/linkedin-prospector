@@ -1,11 +1,14 @@
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { KanbanColumn } from "./KanbanColumn";
 import { CRMContact, CRMStage } from "@/hooks/useCRM";
+import { Tag, ContactTag } from "@/hooks/useTags";
 import { Skeleton } from "@/components/ui/skeleton";
 
 interface KanbanBoardProps {
   stages: CRMStage[];
   contacts: CRMContact[];
+  tags: Tag[];
+  contactTags: ContactTag[];
   isLoading: boolean;
   onOpenDetail: (contact: CRMContact) => void;
   onMarkLinkedIn: (contactId: string) => void;
@@ -14,7 +17,9 @@ interface KanbanBoardProps {
 
 export function KanbanBoard({ 
   stages, 
-  contacts, 
+  contacts,
+  tags,
+  contactTags,
   isLoading,
   onOpenDetail, 
   onMarkLinkedIn,
@@ -46,6 +51,8 @@ export function KanbanBoard({
             key={stage.id}
             stage={stage}
             contacts={getContactsByStage(stage.name)}
+            tags={tags}
+            contactTags={contactTags}
             onOpenDetail={onOpenDetail}
             onMarkLinkedIn={onMarkLinkedIn}
             onDropContact={onMoveContact}
