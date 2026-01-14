@@ -265,7 +265,7 @@ async function sendEmailsWithBatchAPI(
           const [email, data] = emailEntries[j];
           
           if (result.id) {
-            // Success
+            // Success - insert email_send record
             await supabase.from("email_sends").insert({
               campaign_id: campaignId,
               contact_id: data.contact.id,
@@ -277,6 +277,33 @@ async function sendEmailsWithBatchAPI(
               resend_id: result.id,
               sent_at: new Date().toISOString(),
             });
+            
+            // AUTO-CRM: Update contact stage and create activity
+            const now = new Date().toISOString();
+            
+            // Update crm_stage to "Email Enviado" if currently "Novo Lead" or empty
+            await supabase
+              .from("contacts")
+              .update({ 
+                crm_stage: "Email Enviado",
+                last_activity_at: now
+              })
+              .eq("id", data.contact.id)
+              .or("crm_stage.is.null,crm_stage.eq.Novo Lead,crm_stage.eq.");
+            
+            // Create activity in timeline
+            await supabase.from("contact_activities").insert({
+              contact_id: data.contact.id,
+              activity_type: "email_sent",
+              description: `Email enviado: ${data.subject}`,
+              performed_by: null, // Sistema automático
+              metadata: {
+                campaign_id: campaignId,
+                recipient_email: data.recipientEmail,
+                resend_id: result.id
+              }
+            });
+            
             results.sent++;
           } else {
             // Individual email failed

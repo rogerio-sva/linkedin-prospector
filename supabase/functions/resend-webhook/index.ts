@@ -51,10 +51,10 @@ serve(async (req: Request): Promise<Response> => {
       });
     }
 
-    // Find the email send record by resend_id
+    // Find the email send record by resend_id (include contact_id for activity logging)
     const { data: emailSend, error: findError } = await supabase
       .from("email_sends")
-      .select("id, opened_count, clicked_count, clicked_links, opened_at, clicked_at")
+      .select("id, contact_id, opened_count, clicked_count, clicked_links, opened_at, clicked_at")
       .eq("resend_id", emailId)
       .maybeSingle();
 
@@ -73,6 +73,24 @@ serve(async (req: Request): Promise<Response> => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+    
+    // Helper function to create contact activity
+    const contactId = emailSend.contact_id;
+    async function createActivity(activityType: string, description: string, metadata?: Record<string, any>) {
+      if (!contactId) return;
+      try {
+        await supabase.from("contact_activities").insert({
+          contact_id: contactId,
+          activity_type: activityType,
+          description: description,
+          performed_by: null,
+          metadata: metadata || {}
+        });
+        console.log(`Activity created: ${activityType} for contact ${contactId}`);
+      } catch (err) {
+        console.error(`Error creating activity ${activityType}:`, err);
+      }
+    }
 
     const now = new Date().toISOString();
     let updateData: Record<string, any> = {};
@@ -84,6 +102,8 @@ serve(async (req: Request): Promise<Response> => {
 
       case "email.delivered":
         updateData = { status: "delivered", delivered_at: now };
+        // Create activity for email delivered
+        await createActivity("email_delivered", "Email entregue com sucesso");
         break;
 
       case "email.opened":
@@ -114,6 +134,13 @@ serve(async (req: Request): Promise<Response> => {
           bounce_message: event.data.bounce?.message || "Unknown bounce",
         };
         
+        // Create activity for bounce
+        await createActivity(
+          "email_bounced", 
+          `Email retornou: ${event.data.bounce?.message || "Bounce"}`,
+          { bounce_type: event.data.bounce?.type }
+        );
+        
         // Auto-add permanent bounces to suppression list
         if (event.data.bounce?.type === "Permanent") {
           const recipientEmail = event.data.to?.[0];
@@ -122,7 +149,7 @@ serve(async (req: Request): Promise<Response> => {
             await supabase.from("suppressed_emails").upsert({
               email: recipientEmail,
               reason: "hard_bounce",
-              source_contact_id: emailSend.id ? null : null, // We don't have contact_id here easily
+              source_contact_id: contactId || null,
               bounce_type: event.data.bounce.type,
               original_error: event.data.bounce.message,
             }, { onConflict: "email" });
