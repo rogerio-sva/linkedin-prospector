@@ -18,20 +18,9 @@ serve(async (req) => {
 
     console.log("Iniciando sincronização do histórico de CRM...");
 
-    // Buscar o ID do estágio "Contato Inicial"
-    const { data: stages, error: stagesError } = await supabase
-      .from("crm_stages")
-      .select("id, name")
-      .eq("name", "Contato Inicial")
-      .single();
-
-    if (stagesError || !stages) {
-      console.error("Erro ao buscar estágio:", stagesError);
-      throw new Error("Estágio 'Contato Inicial' não encontrado");
-    }
-
-    const contatoInicialStageId = stages.id;
-    console.log(`Estágio 'Contato Inicial' encontrado: ${contatoInicialStageId}`);
+    // Usar o nome do estágio diretamente (não UUID)
+    const emailEnviadoStageName = "Email Enviado";
+    console.log(`Usando estágio: ${emailEnviadoStageName}`);
 
     // Buscar todos os email_sends com paginação (limite de 1000 por query)
     const allEmailSends: Array<{
@@ -214,7 +203,7 @@ serve(async (req) => {
         if (!contact.crm_stage || contact.crm_stage === "Novo Lead") {
           contactsToUpdate.push({
             id: contact.id,
-            crm_stage: contatoInicialStageId,
+            crm_stage: emailEnviadoStageName,
             last_activity_at: lastEmailDate || new Date().toISOString(),
           });
         }
