@@ -4,14 +4,16 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CRMContact } from "@/hooks/useCRM";
+import { Tag } from "@/hooks/useTags";
 
 interface KanbanCardProps {
   contact: CRMContact;
+  contactTags: Tag[];
   onOpenDetail: (contact: CRMContact) => void;
   onMarkLinkedIn: (contactId: string) => void;
 }
 
-export function KanbanCard({ contact, onOpenDetail, onMarkLinkedIn }: KanbanCardProps) {
+export function KanbanCard({ contact, contactTags, onOpenDetail, onMarkLinkedIn }: KanbanCardProps) {
   const hasEmail = !!(contact.email || contact.personal_email);
   const hasLinkedIn = !!contact.linkedin_url;
   const linkedInContacted = !!contact.linkedin_contacted_at;
@@ -52,9 +54,34 @@ export function KanbanCard({ contact, onOpenDetail, onMarkLinkedIn }: KanbanCard
             <span className="truncate">{contact.company_name}</span>
           </div>
         )}
+
+        {/* Tags do contato */}
+        {contactTags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {contactTags.slice(0, 3).map((tag) => (
+              <Badge
+                key={tag.id}
+                variant="secondary"
+                className="text-[10px] px-1.5 py-0"
+                style={{
+                  backgroundColor: `${tag.color}20`,
+                  color: tag.color,
+                  borderColor: tag.color,
+                }}
+              >
+                {tag.name}
+              </Badge>
+            ))}
+            {contactTags.length > 3 && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+                +{contactTags.length - 3}
+              </Badge>
+            )}
+          </div>
+        )}
         
         <div className="flex items-center gap-1 flex-wrap">
-          {/* Email indicator */}
+          {/* Indicador de email */}
           <Tooltip>
             <TooltipTrigger>
               <Badge 
@@ -69,7 +96,7 @@ export function KanbanCard({ contact, onOpenDetail, onMarkLinkedIn }: KanbanCard
             </TooltipContent>
           </Tooltip>
           
-          {/* LinkedIn indicator */}
+          {/* Indicador de LinkedIn */}
           {hasLinkedIn && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -87,7 +114,7 @@ export function KanbanCard({ contact, onOpenDetail, onMarkLinkedIn }: KanbanCard
             </Tooltip>
           )}
           
-          {/* Phone indicator */}
+          {/* Indicador de telefone */}
           {(contact.mobile_number || contact.company_phone) && (
             <Tooltip>
               <TooltipTrigger>
@@ -102,7 +129,7 @@ export function KanbanCard({ contact, onOpenDetail, onMarkLinkedIn }: KanbanCard
           )}
         </div>
         
-        {/* Quick actions */}
+        {/* Ações rápidas */}
         <div className="flex items-center gap-1 pt-1">
           {hasLinkedIn && !linkedInContacted && (
             <Tooltip>

@@ -224,6 +224,8 @@ export default function CRMPage() {
             <KanbanBoard
               stages={stages}
               contacts={filteredContacts}
+              tags={tags}
+              contactTags={contactTags}
               isLoading={stagesLoading || contactsLoading}
               onOpenDetail={handleOpenDetail}
               onMarkLinkedIn={handleMarkLinkedIn}
