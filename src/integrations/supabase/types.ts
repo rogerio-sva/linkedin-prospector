@@ -38,6 +38,44 @@ export type Database = {
         }
         Relationships: []
       }
+      contact_activities: {
+        Row: {
+          activity_type: string
+          contact_id: string
+          created_at: string
+          description: string | null
+          id: string
+          metadata: Json | null
+          performed_by: string | null
+        }
+        Insert: {
+          activity_type: string
+          contact_id: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json | null
+          performed_by?: string | null
+        }
+        Update: {
+          activity_type?: string
+          contact_id?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json | null
+          performed_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_activities_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contact_tags: {
         Row: {
           contact_id: string
@@ -76,6 +114,7 @@ export type Database = {
       }
       contacts: {
         Row: {
+          assigned_to: string | null
           base_id: string
           city: string | null
           company_name: string | null
@@ -83,6 +122,7 @@ export type Database = {
           company_website: string | null
           country: string | null
           created_at: string
+          crm_stage: string | null
           email: string | null
           first_name: string | null
           full_data: Json | null
@@ -90,14 +130,18 @@ export type Database = {
           id: string
           industry: string | null
           job_title: string | null
+          last_activity_at: string | null
           last_name: string | null
+          linkedin_contacted_at: string | null
           linkedin_url: string | null
           mobile_number: string | null
+          notes: string | null
           personal_email: string | null
           seniority_level: string | null
           state: string | null
         }
         Insert: {
+          assigned_to?: string | null
           base_id: string
           city?: string | null
           company_name?: string | null
@@ -105,6 +149,7 @@ export type Database = {
           company_website?: string | null
           country?: string | null
           created_at?: string
+          crm_stage?: string | null
           email?: string | null
           first_name?: string | null
           full_data?: Json | null
@@ -112,14 +157,18 @@ export type Database = {
           id?: string
           industry?: string | null
           job_title?: string | null
+          last_activity_at?: string | null
           last_name?: string | null
+          linkedin_contacted_at?: string | null
           linkedin_url?: string | null
           mobile_number?: string | null
+          notes?: string | null
           personal_email?: string | null
           seniority_level?: string | null
           state?: string | null
         }
         Update: {
+          assigned_to?: string | null
           base_id?: string
           city?: string | null
           company_name?: string | null
@@ -127,6 +176,7 @@ export type Database = {
           company_website?: string | null
           country?: string | null
           created_at?: string
+          crm_stage?: string | null
           email?: string | null
           first_name?: string | null
           full_data?: Json | null
@@ -134,9 +184,12 @@ export type Database = {
           id?: string
           industry?: string | null
           job_title?: string | null
+          last_activity_at?: string | null
           last_name?: string | null
+          linkedin_contacted_at?: string | null
           linkedin_url?: string | null
           mobile_number?: string | null
+          notes?: string | null
           personal_email?: string | null
           seniority_level?: string | null
           state?: string | null
@@ -150,6 +203,30 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      crm_stages: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          name: string
+          position: number
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          name: string
+          position?: number
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          name?: string
+          position?: number
+        }
+        Relationships: []
       }
       email_campaigns: {
         Row: {
@@ -428,6 +505,30 @@ export type Database = {
           color?: string
           created_at?: string
           id?: string
+          name?: string
+        }
+        Relationships: []
+      }
+      team_members: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
           name?: string
         }
         Relationships: []

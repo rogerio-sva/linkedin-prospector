@@ -1,4 +1,4 @@
-import { Search, Database, FileText, Send } from "lucide-react";
+import { Search, Database, FileText, Send, Kanban, BarChart3 } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
@@ -26,6 +26,11 @@ const menuItems = [
     icon: Database,
   },
   {
+    title: "CRM",
+    url: "/crm",
+    icon: Kanban,
+  },
+  {
     title: "Templates",
     url: "/templates",
     icon: FileText,
@@ -34,6 +39,11 @@ const menuItems = [
     title: "Campanhas",
     url: "/campanhas",
     icon: Send,
+  },
+  {
+    title: "Relatórios",
+    url: "/relatorios",
+    icon: BarChart3,
   },
 ];
 
