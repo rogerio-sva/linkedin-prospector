@@ -39,16 +39,92 @@ const CampaignsPage = () => {
     },
   });
 
-  // Fetch sends for selected campaign
+  // Fetch aggregated metrics for selected campaign
+  const { data: campaignMetrics, isLoading: isLoadingCampaignMetrics } = useQuery({
+    queryKey: ["campaign-metrics", selectedCampaignId],
+    queryFn: async () => {
+      if (!selectedCampaignId) return null;
+
+      // Get total count
+      const { count: totalCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId);
+
+      // Get delivered count
+      const { count: deliveredCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .not("delivered_at", "is", null);
+
+      // Get opened count
+      const { count: openedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .not("opened_at", "is", null);
+
+      // Get clicked count
+      const { count: clickedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .not("clicked_at", "is", null);
+
+      // Get bounced count
+      const { count: bouncedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .not("bounced_at", "is", null);
+
+      // Get complained count
+      const { count: complainedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .not("complained_at", "is", null);
+
+      // Get failed count
+      const { count: failedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .eq("status", "failed");
+
+      // Get pending count
+      const { count: pendingCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .eq("campaign_id", selectedCampaignId)
+        .eq("status", "pending");
+
+      return {
+        total: totalCount || 0,
+        delivered: deliveredCount || 0,
+        opened: openedCount || 0,
+        clicked: clickedCount || 0,
+        bounced: bouncedCount || 0,
+        complained: complainedCount || 0,
+        failed: failedCount || 0,
+        pending: pendingCount || 0,
+      };
+    },
+    enabled: !!selectedCampaignId,
+  });
+
+  // Fetch sample sends for selected campaign (limit to 500 for table display)
   const { data: campaignSends = [], isLoading: isLoadingCampaignSends } = useQuery({
-    queryKey: ["campaign-sends", selectedCampaignId],
+    queryKey: ["campaign-sends-sample", selectedCampaignId],
     queryFn: async () => {
       if (!selectedCampaignId) return [];
       const { data, error } = await supabase
         .from("email_sends")
         .select("*")
         .eq("campaign_id", selectedCampaignId)
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false })
+        .limit(500);
 
       if (error) throw error;
       return data;
@@ -56,16 +132,46 @@ const CampaignsPage = () => {
     enabled: !!selectedCampaignId,
   });
 
-  // Fetch all sends for global metrics
-  const { data: allSends = [] } = useQuery({
-    queryKey: ["all-sends-metrics"],
+  // Fetch aggregated global metrics (instead of loading all records)
+  const { data: globalMetrics } = useQuery({
+    queryKey: ["global-send-metrics"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Get total count
+      const { count: totalCount } = await supabase
         .from("email_sends")
-        .select("id, status, delivered_at, opened_at, clicked_at, bounced_at, complained_at");
+        .select("*", { count: "exact", head: true });
 
-      if (error) throw error;
-      return data;
+      // Get delivered count
+      const { count: deliveredCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .not("delivered_at", "is", null);
+
+      // Get opened count
+      const { count: openedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .not("opened_at", "is", null);
+
+      // Get clicked count
+      const { count: clickedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .not("clicked_at", "is", null);
+
+      // Get bounced count
+      const { count: bouncedCount } = await supabase
+        .from("email_sends")
+        .select("*", { count: "exact", head: true })
+        .not("bounced_at", "is", null);
+
+      return {
+        sent: totalCount || 0,
+        delivered: deliveredCount || 0,
+        opened: openedCount || 0,
+        clicked: clickedCount || 0,
+        bounced: bouncedCount || 0,
+      };
     },
   });
 
@@ -84,12 +190,12 @@ const CampaignsPage = () => {
     }
   };
 
-  // Calculate global metrics
-  const sentCount = allSends.filter(s => s.status === "sent" || s.status === "delivered" || s.delivered_at).length;
-  const deliveredCount = allSends.filter(s => s.delivered_at || s.status === "delivered").length;
-  const openedCount = allSends.filter(s => s.opened_at).length;
-  const clickedCount = allSends.filter(s => s.clicked_at).length;
-  const bouncedCount = allSends.filter(s => s.bounced_at).length;
+  // Use aggregated global metrics
+  const sentCount = globalMetrics?.sent || 0;
+  const deliveredCount = globalMetrics?.delivered || 0;
+  const openedCount = globalMetrics?.opened || 0;
+  const clickedCount = globalMetrics?.clicked || 0;
+  const bouncedCount = globalMetrics?.bounced || 0;
 
   const openRate = deliveredCount > 0 ? ((openedCount / deliveredCount) * 100).toFixed(1) : "0";
   const clickRate = openedCount > 0 ? ((clickedCount / openedCount) * 100).toFixed(1) : "0";
@@ -276,7 +382,8 @@ const CampaignsPage = () => {
               <CampaignMetricsPanel
                 campaign={selectedCampaign}
                 sends={campaignSends}
-                isLoading={isLoadingCampaignSends}
+                metrics={campaignMetrics}
+                isLoading={isLoadingCampaignMetrics || isLoadingCampaignSends}
               />
             ) : (
               <Card className="p-8 shadow-card flex flex-col items-center justify-center min-h-[400px]">

@@ -54,29 +54,44 @@ interface Campaign {
   bases?: { name: string } | null;
 }
 
+interface CampaignMetrics {
+  total: number;
+  delivered: number;
+  opened: number;
+  clicked: number;
+  bounced: number;
+  complained: number;
+  failed: number;
+  pending: number;
+}
+
 interface CampaignMetricsPanelProps {
   campaign: Campaign;
   sends: CampaignSend[];
+  metrics: CampaignMetrics | null | undefined;
   isLoading: boolean;
 }
 
-export const CampaignMetricsPanel = ({ campaign, sends, isLoading }: CampaignMetricsPanelProps) => {
+export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: CampaignMetricsPanelProps) => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
 
-  // Calculate metrics
-  const totalSent = sends.length;
-  const delivered = sends.filter(s => s.delivered_at || s.status === "delivered").length;
-  const opened = sends.filter(s => s.opened_at).length;
-  const clicked = sends.filter(s => s.clicked_at).length;
-  const bounced = sends.filter(s => s.bounced_at).length;
-  const complained = sends.filter(s => s.complained_at).length;
-  const failed = sends.filter(s => s.status === "failed").length;
-  const pending = sends.filter(s => s.status === "pending").length;
+  // Use aggregated metrics from props (accurate counts) or fallback to sends for legacy
+  const totalSent = metrics?.total ?? sends.length;
+  const delivered = metrics?.delivered ?? sends.filter(s => s.delivered_at || s.status === "delivered").length;
+  const opened = metrics?.opened ?? sends.filter(s => s.opened_at).length;
+  const clicked = metrics?.clicked ?? sends.filter(s => s.clicked_at).length;
+  const bounced = metrics?.bounced ?? sends.filter(s => s.bounced_at).length;
+  const complained = metrics?.complained ?? sends.filter(s => s.complained_at).length;
+  const failed = metrics?.failed ?? sends.filter(s => s.status === "failed").length;
+  const pending = metrics?.pending ?? sends.filter(s => s.status === "pending").length;
 
   const deliveryRate = totalSent > 0 ? ((delivered / totalSent) * 100).toFixed(1) : "0";
   const openRate = delivered > 0 ? ((opened / delivered) * 100).toFixed(1) : "0";
   const clickRate = opened > 0 ? ((clicked / opened) * 100).toFixed(1) : "0";
   const bounceRate = totalSent > 0 ? ((bounced / totalSent) * 100).toFixed(1) : "0";
+
+  // Indicator if we're showing a sample (sends.length < total)
+  const isShowingSample = sends.length < totalSent;
 
   // Chart data
   const funnelData = [
@@ -360,7 +375,14 @@ export const CampaignMetricsPanel = ({ campaign, sends, isLoading }: CampaignMet
       {/* Recipients Table */}
       <Card className="p-4 shadow-card">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-medium text-foreground">Destinatários ({filteredSends.length})</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-medium text-foreground">Destinatários ({filteredSends.length})</h3>
+            {isShowingSample && (
+              <Badge variant="outline" className="text-xs">
+                Amostra de {sends.length} de {totalSent.toLocaleString()} total
+              </Badge>
+            )}
+          </div>
           <Tabs value={statusFilter} onValueChange={setStatusFilter}>
             <TabsList className="h-8">
               <TabsTrigger value="all" className="text-xs px-2 h-7">Todos</TabsTrigger>
