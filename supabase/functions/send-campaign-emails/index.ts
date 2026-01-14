@@ -82,6 +82,7 @@ function renderTemplate(template: Template, contact: Contact): { subject: string
 }
 
 // Send emails using Resend Batch API (up to 100 emails per request)
+// OPTIMIZED: Batch database inserts for better performance
 async function sendEmailsWithBatchAPI(
   supabase: any,
   template: Template,
@@ -224,9 +225,10 @@ async function sendEmailsWithBatchAPI(
       if (batchResponse.error) {
         console.error(`[BatchAPI] Batch error:`, batchResponse.error);
         
-        // If batch fails entirely, record all as failed
+        // Batch insert all failed records
+        const failedEmailSends: any[] = [];
         for (const [email, data] of contactMap) {
-          await supabase.from("email_sends").insert({
+          failedEmailSends.push({
             campaign_id: campaignId,
             contact_id: data.contact.id,
             recipient_email: data.recipientEmail,
@@ -238,6 +240,11 @@ async function sendEmailsWithBatchAPI(
           });
           results.failed++;
           results.errors.push(`${email}: ${(batchResponse.error as any).message}`);
+        }
+        
+        // Single batch insert for all failures
+        if (failedEmailSends.length > 0) {
+          await supabase.from("email_sends").insert(failedEmailSends);
         }
         
         // Check for rate limit or quota errors
@@ -259,14 +266,21 @@ async function sendEmailsWithBatchAPI(
       const responseData = (batchResponse.data as any)?.data || batchResponse.data;
       if (responseData && Array.isArray(responseData)) {
         const emailEntries = Array.from(contactMap.entries());
+        const now = new Date().toISOString();
+        
+        // Accumulators for batch DB operations
+        const successEmailSends: any[] = [];
+        const failedEmailSends: any[] = [];
+        const successContactIds: string[] = [];
+        const successActivities: any[] = [];
         
         for (let j = 0; j < responseData.length; j++) {
           const result = responseData[j];
           const [email, data] = emailEntries[j];
           
           if (result.id) {
-            // Success - insert email_send record
-            await supabase.from("email_sends").insert({
+            // Success - accumulate for batch insert
+            successEmailSends.push({
               campaign_id: campaignId,
               contact_id: data.contact.id,
               recipient_email: data.recipientEmail,
@@ -275,28 +289,16 @@ async function sendEmailsWithBatchAPI(
               body: data.body,
               status: "sent",
               resend_id: result.id,
-              sent_at: new Date().toISOString(),
+              sent_at: now,
             });
             
-            // AUTO-CRM: Update contact stage and create activity
-            const now = new Date().toISOString();
+            successContactIds.push(data.contact.id);
             
-            // Update crm_stage to "Email Enviado" if currently "Novo Lead" or empty
-            await supabase
-              .from("contacts")
-              .update({ 
-                crm_stage: "Email Enviado",
-                last_activity_at: now
-              })
-              .eq("id", data.contact.id)
-              .or("crm_stage.is.null,crm_stage.eq.Novo Lead,crm_stage.eq.");
-            
-            // Create activity in timeline
-            await supabase.from("contact_activities").insert({
+            successActivities.push({
               contact_id: data.contact.id,
               activity_type: "email_sent",
               description: `Email enviado: ${data.subject}`,
-              performed_by: null, // Sistema automático
+              performed_by: null,
               metadata: {
                 campaign_id: campaignId,
                 recipient_email: data.recipientEmail,
@@ -306,8 +308,8 @@ async function sendEmailsWithBatchAPI(
             
             results.sent++;
           } else {
-            // Individual email failed
-            await supabase.from("email_sends").insert({
+            // Individual email failed - accumulate
+            failedEmailSends.push({
               campaign_id: campaignId,
               contact_id: data.contact.id,
               recipient_email: data.recipientEmail,
@@ -321,6 +323,52 @@ async function sendEmailsWithBatchAPI(
             results.errors.push(`${email}: Erro ao enviar`);
           }
         }
+        
+        // BATCH DB OPERATIONS - Much faster than individual inserts
+        const dbStartTime = Date.now();
+        
+        // Insert all successful email_sends in one operation
+        if (successEmailSends.length > 0) {
+          const { error: emailSendsError } = await supabase.from("email_sends").insert(successEmailSends);
+          if (emailSendsError) {
+            console.error(`[BatchAPI] Error batch inserting email_sends:`, emailSendsError);
+          }
+        }
+        
+        // Insert all failed email_sends in one operation
+        if (failedEmailSends.length > 0) {
+          const { error: failedEmailSendsError } = await supabase.from("email_sends").insert(failedEmailSends);
+          if (failedEmailSendsError) {
+            console.error(`[BatchAPI] Error batch inserting failed email_sends:`, failedEmailSendsError);
+          }
+        }
+        
+        // Batch update contacts - update crm_stage for all successful contacts
+        if (successContactIds.length > 0) {
+          const { error: contactsUpdateError } = await supabase
+            .from("contacts")
+            .update({ 
+              crm_stage: "Email Enviado",
+              last_activity_at: now
+            })
+            .in("id", successContactIds)
+            .or("crm_stage.is.null,crm_stage.eq.Novo Lead,crm_stage.eq.");
+          
+          if (contactsUpdateError) {
+            console.error(`[BatchAPI] Error batch updating contacts:`, contactsUpdateError);
+          }
+        }
+        
+        // Batch insert all activities
+        if (successActivities.length > 0) {
+          const { error: activitiesError } = await supabase.from("contact_activities").insert(successActivities);
+          if (activitiesError) {
+            console.error(`[BatchAPI] Error batch inserting activities:`, activitiesError);
+          }
+        }
+        
+        const dbTime = Date.now() - dbStartTime;
+        console.log(`[BatchAPI] Batch ${batchNumber} DB operations completed in ${dbTime}ms`);
       }
       
       console.log(`[BatchAPI] Batch ${batchNumber} completed: ${results.sent} sent, ${results.failed} failed`);
@@ -328,9 +376,10 @@ async function sendEmailsWithBatchAPI(
     } catch (batchError: any) {
       console.error(`[BatchAPI] Batch ${batchNumber} exception:`, batchError);
       
-      // Record all emails in this batch as failed
+      // Batch insert all failed records
+      const failedEmailSends: any[] = [];
       for (const [email, data] of contactMap) {
-        await supabase.from("email_sends").insert({
+        failedEmailSends.push({
           campaign_id: campaignId,
           contact_id: data.contact.id,
           recipient_email: data.recipientEmail,
@@ -343,11 +392,15 @@ async function sendEmailsWithBatchAPI(
         results.failed++;
         results.errors.push(`${email}: ${batchError.message}`);
       }
+      
+      if (failedEmailSends.length > 0) {
+        await supabase.from("email_sends").insert(failedEmailSends);
+      }
     }
     
-    // Small delay between batch requests to avoid rate limits (100ms)
+    // Reduced delay between batch requests (50ms instead of 100ms)
     if (i + BATCH_SIZE < filteredContacts.length) {
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
 

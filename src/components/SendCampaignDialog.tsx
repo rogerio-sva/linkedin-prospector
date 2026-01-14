@@ -49,7 +49,7 @@ interface BatchProgress {
   errors: string[];
 }
 
-const BATCH_SIZE = 350; // Safe batch size to avoid timeout
+const BATCH_SIZE = 500; // Increased batch size for faster sending
 
 export const SendCampaignDialog = ({
   open,
@@ -230,6 +230,20 @@ export const SendCampaignDialog = ({
       setValidationStats({ undeliverable: 0, risky: 0, unknown: 0, deliverable: 0 });
     }
   }, [open, initialBaseId, initialSelectedContacts.length, initialContacts.length]);
+
+  // Prevent accidental tab close during sending
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (batchProgress.status === "sending") {
+        e.preventDefault();
+        e.returnValue = "Campanha em andamento. Tem certeza que deseja sair?";
+        return e.returnValue;
+      }
+    };
+    
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [batchProgress.status]);
 
   const contactsWithEmail = useMemo(() => {
     const baseContacts = sendToSelected
