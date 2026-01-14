@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Mail, CheckCircle, XCircle, Eye, MousePointerClick, 
-  AlertTriangle, TrendingUp, Clock, Send, Users
+  AlertTriangle, TrendingUp, Clock, Send, Users, Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -23,6 +24,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { BouncedContactsDialog } from "@/components/BouncedContactsDialog";
 
 interface CampaignSend {
   id: string;
@@ -74,6 +76,7 @@ interface CampaignMetricsPanelProps {
 
 export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: CampaignMetricsPanelProps) => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [bouncedDialogOpen, setBouncedDialogOpen] = useState(false);
 
   // Use aggregated metrics from props (accurate counts) or fallback to sends for legacy
   const totalSent = metrics?.total ?? sends.length;
@@ -236,10 +239,20 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
         <Card className="p-3 shadow-card">
           <div className="flex items-center gap-2">
             <XCircle className="h-4 w-4 text-red-600" />
-            <div>
+            <div className="flex-1">
               <p className="text-xs text-muted-foreground">Bounced</p>
               <p className="text-lg font-semibold">{bounced}</p>
             </div>
+            {bounced > 0 && (
+              <Button 
+                variant="ghost" 
+                size="icon" 
+                className="h-7 w-7 text-red-600 hover:bg-red-50"
+                onClick={() => setBouncedDialogOpen(true)}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </Card>
         <Card className="p-3 shadow-card">
@@ -451,6 +464,14 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
           </Table>
         </ScrollArea>
       </Card>
+
+      {/* Bounced Contacts Dialog */}
+      <BouncedContactsDialog
+        open={bouncedDialogOpen}
+        onOpenChange={setBouncedDialogOpen}
+        campaignId={campaign.id}
+        campaignName={campaign.name}
+      />
     </div>
   );
 };

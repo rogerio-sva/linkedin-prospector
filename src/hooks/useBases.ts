@@ -362,11 +362,12 @@ export function useBases() {
   const getBouncedContactIds = async (baseId: string): Promise<string[]> => {
     try {
       // Get all bounced email sends for contacts in this base
+      // Using bounced_at instead of status to catch all bounces
       const { data, error } = await supabase
         .from('email_sends')
         .select('contact_id, contacts!inner(base_id)')
         .eq('contacts.base_id', baseId)
-        .eq('status', 'bounced');
+        .not('bounced_at', 'is', null);
 
       if (error) throw error;
 
