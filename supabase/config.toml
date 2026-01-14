@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.validate-emails]
 verify_jwt = false
+
+[functions.sync-crm-history]
+verify_jwt = false
