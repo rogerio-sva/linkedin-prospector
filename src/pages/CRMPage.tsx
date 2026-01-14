@@ -137,12 +137,15 @@ export default function CRMPage() {
 
             <div className="space-y-2">
               <Label>Membro da Equipe</Label>
-              <Select value={filterMember} onValueChange={setFilterMember}>
+              <Select 
+                value={filterMember || "__all__"} 
+                onValueChange={(v) => setFilterMember(v === "__all__" ? "" : v)}
+              >
                 <SelectTrigger className="w-[200px]">
                   <SelectValue placeholder="Todos os membros" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Todos os membros</SelectItem>
+                  <SelectItem value="__all__">Todos os membros</SelectItem>
                   {teamMembers.map((member) => (
                     <SelectItem key={member.id} value={member.name}>
                       {member.name}
