@@ -515,22 +515,41 @@ serve(async (req: Request): Promise<Response> => {
 
     // Fetch contacts by IDs (batch mode)
     if (batchMode && contactIds && contactIds.length > 0) {
-      // Fetch specific contacts by ID
-      const { data: contacts, error: contactsError } = await supabase
-        .from("contacts")
-        .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
-        .in("id", contactIds);
-
-      if (contactsError) {
-        console.error("Contacts error:", contactsError);
-        throw new Error("Erro ao buscar contatos");
+      // Fetch contacts in sub-batches of 100 IDs to avoid URL length limits
+      const CONTACT_FETCH_BATCH_SIZE = 100;
+      let allFetchedContacts: Contact[] = [];
+      
+      console.log(`[BatchMode] Fetching ${contactIds.length} contacts in sub-batches of ${CONTACT_FETCH_BATCH_SIZE}`);
+      
+      for (let i = 0; i < contactIds.length; i += CONTACT_FETCH_BATCH_SIZE) {
+        const batchIds = contactIds.slice(i, i + CONTACT_FETCH_BATCH_SIZE);
+        const subBatchNum = Math.floor(i / CONTACT_FETCH_BATCH_SIZE) + 1;
+        const totalSubBatches = Math.ceil(contactIds.length / CONTACT_FETCH_BATCH_SIZE);
+        
+        console.log(`[BatchMode] Fetching sub-batch ${subBatchNum}/${totalSubBatches} (${batchIds.length} IDs)`);
+        
+        const { data: batchContacts, error: batchError } = await supabase
+          .from("contacts")
+          .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+          .in("id", batchIds);
+        
+        if (batchError) {
+          console.error(`[BatchMode] Error fetching sub-batch ${subBatchNum}:`, batchError);
+          throw new Error("Erro ao buscar contatos");
+        }
+        
+        if (batchContacts) {
+          allFetchedContacts = allFetchedContacts.concat(batchContacts);
+        }
       }
+      
+      const contacts = allFetchedContacts;
 
       if (!contacts || contacts.length === 0) {
         throw new Error("Nenhum contato encontrado");
       }
 
-      console.log(`Found ${contacts.length} contacts for batch`);
+      console.log(`[BatchMode] Total fetched: ${contacts.length} contacts for batch`);
 
       // Filter contacts based on email type preference
       const contactsWithEmail = contacts.filter((c: Contact) => {
