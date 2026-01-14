@@ -14,12 +14,13 @@ import {
 import { KanbanBoard } from "@/components/crm/KanbanBoard";
 import { ContactDetailDrawer } from "@/components/crm/ContactDetailDrawer";
 import { TeamManagement } from "@/components/crm/TeamManagement";
+import { UpdateStagesByListDialog } from "@/components/crm/UpdateStagesByListDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Kanban, Users, X, Filter } from "lucide-react";
+import { Kanban, Users, X, Filter, ListChecks } from "lucide-react";
 
 export default function CRMPage() {
   const [selectedBaseId, setSelectedBaseId] = useState<string>("");
@@ -27,6 +28,7 @@ export default function CRMPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [filterMember, setFilterMember] = useState<string>("");
   const [filterTags, setFilterTags] = useState<string[]>([]);
+  const [updateStagesOpen, setUpdateStagesOpen] = useState(false);
 
   const { bases } = useBases();
   const { tags, contactTags } = useTags();
@@ -104,6 +106,10 @@ export default function CRMPage() {
           <h1 className="text-2xl font-bold">CRM</h1>
           <p className="text-muted-foreground">Gerencie seus leads em estágios de venda</p>
         </div>
+        <Button onClick={() => setUpdateStagesOpen(true)} variant="outline" className="gap-2">
+          <ListChecks className="h-4 w-4" />
+          Atualizar Estágios
+        </Button>
       </div>
 
       <Tabs defaultValue="kanban">
@@ -251,6 +257,11 @@ export default function CRMPage() {
         onAssign={handleAssign}
         onMarkLinkedIn={handleMarkLinkedIn}
         onAddActivity={handleAddActivity}
+      />
+
+      <UpdateStagesByListDialog
+        open={updateStagesOpen}
+        onOpenChange={setUpdateStagesOpen}
       />
     </div>
   );

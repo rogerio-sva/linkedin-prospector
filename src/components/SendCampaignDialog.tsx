@@ -117,6 +117,9 @@ export const SendCampaignDialog = ({
       setIsLoadingContacts(true);
       try {
         // Get all contacts from base - explicitly set no limit (Supabase defaults to 1000)
+        // FILTER: Only include contacts in early stages (Novo Lead, Email Enviado, or null)
+        // Exclude contacts already in advanced stages (Prospecção, Negociação, etc.)
+        const allowedStages = ["Novo Lead", "Email Enviado"];
         let allContacts: any[] = [];
         let offset = 0;
         const pageSize = 1000;
@@ -126,6 +129,7 @@ export const SendCampaignDialog = ({
             .from("contacts")
             .select("*")
             .eq("base_id", selectedSendBaseId)
+            .or(`crm_stage.is.null,crm_stage.eq.,crm_stage.in.(${allowedStages.join(",")})`)
             .range(offset, offset + pageSize - 1);
 
           if (contactsError) throw contactsError;
