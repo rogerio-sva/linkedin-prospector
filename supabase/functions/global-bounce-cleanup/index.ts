@@ -320,73 +320,82 @@ async function processCleanup(supabase: any, jobId: string, resendApiKey: string
 
     // Get unique contact IDs
     const contactIds = [...new Set(bouncedEmails?.map((e: any) => e.contact_id) || [])];
-
-    // Fetch contact details
-    const { data: bouncedContacts, error: contactsError } = await supabase
-      .from("contacts")
-      .select("id, linkedin_url, email, personal_email")
-      .in("id", contactIds);
-
-    if (contactsError) {
-      console.error("Error fetching contacts:", contactsError);
-      throw contactsError;
-    }
+    
+    console.log(`Processing ${contactIds.length} unique contacts with bounces`);
 
     let emailsCleared = 0;
     let contactsDeleted = 0;
     let crmReset = 0;
 
-    for (const contact of bouncedContacts || []) {
-      const hasLinkedIn = contact.linkedin_url && contact.linkedin_url.trim() !== "";
+    // Process contacts in batches of 50 to avoid URL length limits
+    const CONTACT_BATCH_SIZE = 50;
+    
+    for (let i = 0; i < contactIds.length; i += CONTACT_BATCH_SIZE) {
+      const batchIds = contactIds.slice(i, i + CONTACT_BATCH_SIZE);
+      
+      // Fetch contact details for this batch
+      const { data: batchContacts, error: contactsError } = await supabase
+        .from("contacts")
+        .select("id, linkedin_url, email, personal_email")
+        .in("id", batchIds);
 
-      if (hasLinkedIn) {
-        // Clear email fields and reset CRM stage
-        const updateFields: any = { crm_stage: "Novo Lead" };
-        
-        if (contact.email) {
-          updateFields.email = null;
-          emailsCleared++;
+      if (contactsError) {
+        console.error("Error fetching contacts batch:", contactsError);
+        continue; // Continue with next batch instead of failing entirely
+      }
+
+      for (const contact of batchContacts || []) {
+        const hasLinkedIn = contact.linkedin_url && contact.linkedin_url.trim() !== "";
+
+        if (hasLinkedIn) {
+          // Clear email fields and reset CRM stage
+          const updateFields: any = { crm_stage: "Novo Lead" };
+          
+          if (contact.email) {
+            updateFields.email = null;
+            emailsCleared++;
+          }
+          if (contact.personal_email) {
+            updateFields.personal_email = null;
+            emailsCleared++;
+          }
+
+          await supabase
+            .from("contacts")
+            .update(updateFields)
+            .eq("id", contact.id);
+
+          crmReset++;
+
+          // Log activity
+          await supabase
+            .from("contact_activities")
+            .insert({
+              contact_id: contact.id,
+              activity_type: "email_cleaned",
+              description: "Email limpo automaticamente após bounce permanente (limpeza global)",
+              performed_by: "Sistema",
+            });
+        } else {
+          // Delete contact without LinkedIn
+          // First delete related records
+          await supabase
+            .from("contact_tags")
+            .delete()
+            .eq("contact_id", contact.id);
+
+          await supabase
+            .from("contact_activities")
+            .delete()
+            .eq("contact_id", contact.id);
+
+          await supabase
+            .from("contacts")
+            .delete()
+            .eq("id", contact.id);
+
+          contactsDeleted++;
         }
-        if (contact.personal_email) {
-          updateFields.personal_email = null;
-          emailsCleared++;
-        }
-
-        await supabase
-          .from("contacts")
-          .update(updateFields)
-          .eq("id", contact.id);
-
-        crmReset++;
-
-        // Log activity
-        await supabase
-          .from("contact_activities")
-          .insert({
-            contact_id: contact.id,
-            activity_type: "email_cleaned",
-            description: "Email limpo automaticamente após bounce permanente (limpeza global)",
-            performed_by: "Sistema",
-          });
-      } else {
-        // Delete contact without LinkedIn
-        // First delete related records
-        await supabase
-          .from("contact_tags")
-          .delete()
-          .eq("contact_id", contact.id);
-
-        await supabase
-          .from("contact_activities")
-          .delete()
-          .eq("contact_id", contact.id);
-
-        await supabase
-          .from("contacts")
-          .delete()
-          .eq("id", contact.id);
-
-        contactsDeleted++;
       }
     }
 
