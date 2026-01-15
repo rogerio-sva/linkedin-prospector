@@ -6,7 +6,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Mail, CheckCircle, XCircle, Eye, MousePointerClick, 
-  AlertTriangle, TrendingUp, Clock, Send, Users, Trash2
+  AlertTriangle, TrendingUp, Clock, Send, Users, Trash2,
+  RefreshCcw, Loader2
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -25,6 +26,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { BouncedContactsDialog } from "@/components/BouncedContactsDialog";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 interface CampaignSend {
   id: string;
@@ -77,6 +80,29 @@ interface CampaignMetricsPanelProps {
 export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: CampaignMetricsPanelProps) => {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [bouncedDialogOpen, setBouncedDialogOpen] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Sync email status from Resend API
+  const handleSyncStatus = async () => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('sync-email-status', {
+        body: { campaignId: campaign.id, limit: 1000 },
+      });
+
+      if (error) throw error;
+
+      toast.success(data.message || 'Sincronização concluída');
+      
+      // Refresh the page to show updated metrics
+      window.location.reload();
+    } catch (error) {
+      console.error('Error syncing status:', error);
+      toast.error('Erro ao sincronizar status');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Use aggregated metrics from props (accurate counts) or fallback to sends for legacy
   const totalSent = metrics?.total ?? sends.length;
@@ -174,9 +200,25 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
               <span>{format(new Date(campaign.created_at), "dd/MM/yyyy HH:mm", { locale: ptBR })}</span>
             </div>
           </div>
-          <Badge variant={campaign.status === "sent" || campaign.status === "completed" ? "default" : "secondary"}>
-            {campaign.status === "sent" || campaign.status === "completed" ? "Enviada" : campaign.status}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleSyncStatus}
+              disabled={isSyncing}
+              title="Sincronizar status dos emails via API do Resend"
+            >
+              {isSyncing ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <RefreshCcw className="h-4 w-4 mr-1" />
+              )}
+              Sincronizar Status
+            </Button>
+            <Badge variant={campaign.status === "sent" || campaign.status === "completed" ? "default" : "secondary"}>
+              {campaign.status === "sent" || campaign.status === "completed" ? "Enviada" : campaign.status}
+            </Badge>
+          </div>
         </div>
       </Card>
 

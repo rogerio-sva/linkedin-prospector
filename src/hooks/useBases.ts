@@ -406,6 +406,212 @@ export function useBases() {
     }
   };
 
+  // Clean bounced emails: clear email for LinkedIn contacts, delete others
+  const cleanBouncedEmails = async (
+    baseId?: string
+  ): Promise<{ emailsCleared: number; contactsDeleted: number; crmReset: number }> => {
+    try {
+      // Get all permanent bounced contacts with their LinkedIn status
+      let query = supabase
+        .from('email_sends')
+        .select(`
+          contact_id,
+          recipient_email,
+          contacts!inner(id, linkedin_url, email, personal_email, crm_stage)
+        `)
+        .not('bounced_at', 'is', null)
+        .eq('bounce_type', 'Permanent');
+
+      const { data: bouncedSends, error: fetchError } = await query;
+
+      if (fetchError) throw fetchError;
+
+      if (!bouncedSends || bouncedSends.length === 0) {
+        return { emailsCleared: 0, contactsDeleted: 0, crmReset: 0 };
+      }
+
+      // Get unique contacts
+      const contactMap = new Map<string, {
+        id: string;
+        linkedin_url: string | null;
+        email: string | null;
+        personal_email: string | null;
+        crm_stage: string | null;
+        bounced_email: string;
+      }>();
+
+      bouncedSends.forEach((send: any) => {
+        const contact = send.contacts;
+        if (contact && !contactMap.has(contact.id)) {
+          contactMap.set(contact.id, {
+            id: contact.id,
+            linkedin_url: contact.linkedin_url,
+            email: contact.email,
+            personal_email: contact.personal_email,
+            crm_stage: contact.crm_stage,
+            bounced_email: send.recipient_email,
+          });
+        }
+      });
+
+      // Filter by baseId if provided
+      let contactsToProcess = Array.from(contactMap.values());
+      
+      if (baseId) {
+        const { data: baseContacts, error: baseError } = await supabase
+          .from('contacts')
+          .select('id')
+          .eq('base_id', baseId);
+        
+        if (baseError) throw baseError;
+        
+        const baseContactIds = new Set((baseContacts || []).map(c => c.id));
+        contactsToProcess = contactsToProcess.filter(c => baseContactIds.has(c.id));
+      }
+
+      // Separate contacts by LinkedIn status
+      const withLinkedIn = contactsToProcess.filter(c => c.linkedin_url && c.linkedin_url.trim() !== '');
+      const withoutLinkedIn = contactsToProcess.filter(c => !c.linkedin_url || c.linkedin_url.trim() === '');
+
+      let emailsCleared = 0;
+      let contactsDeleted = 0;
+      let crmReset = 0;
+
+      // Process contacts WITH LinkedIn: clear email, reset CRM
+      for (const contact of withLinkedIn) {
+        const updates: Record<string, unknown> = {
+          crm_stage: 'Novo Lead',
+        };
+
+        // Clear the bounced email field
+        if (contact.email === contact.bounced_email) {
+          updates.email = null;
+        }
+        if (contact.personal_email === contact.bounced_email) {
+          updates.personal_email = null;
+        }
+
+        const { error: updateError } = await supabase
+          .from('contacts')
+          .update(updates)
+          .eq('id', contact.id);
+
+        if (!updateError) {
+          emailsCleared++;
+          if (contact.crm_stage !== 'Novo Lead') {
+            crmReset++;
+          }
+
+          // Log activity
+          await supabase.from('contact_activities').insert({
+            contact_id: contact.id,
+            activity_type: 'email_cleaned',
+            description: `Email inválido removido: ${contact.bounced_email}. Contato mantido (possui LinkedIn). CRM resetado para Novo Lead.`,
+            metadata: { 
+              cleaned_email: contact.bounced_email,
+              previous_stage: contact.crm_stage,
+            },
+          });
+        }
+      }
+
+      // Process contacts WITHOUT LinkedIn: delete entirely
+      if (withoutLinkedIn.length > 0) {
+        const idsToDelete = withoutLinkedIn.map(c => c.id);
+
+        // Delete contact_tags first
+        await supabase
+          .from('contact_tags')
+          .delete()
+          .in('contact_id', idsToDelete);
+
+        // Delete contact_activities
+        await supabase
+          .from('contact_activities')
+          .delete()
+          .in('contact_id', idsToDelete);
+
+        // Delete contacts
+        const { error: deleteError } = await supabase
+          .from('contacts')
+          .delete()
+          .in('id', idsToDelete);
+
+        if (!deleteError) {
+          contactsDeleted = idsToDelete.length;
+        }
+      }
+
+      // Refresh bases to update counts
+      await fetchBases();
+
+      return { emailsCleared, contactsDeleted, crmReset };
+    } catch (error) {
+      console.error('Error cleaning bounced emails:', error);
+      toast.error('Erro ao limpar emails com bounce');
+      return { emailsCleared: 0, contactsDeleted: 0, crmReset: 0 };
+    }
+  };
+
+  // Get bounced contacts with LinkedIn separation
+  const getBouncedContactsWithDetails = async (
+    campaignId?: string
+  ): Promise<{
+    withLinkedIn: Array<{ id: string; email: string; name: string; linkedin_url: string }>;
+    withoutLinkedIn: Array<{ id: string; email: string; name: string }>;
+  }> => {
+    try {
+      let query = supabase
+        .from('email_sends')
+        .select(`
+          contact_id,
+          recipient_email,
+          recipient_name,
+          contacts!inner(id, linkedin_url)
+        `)
+        .not('bounced_at', 'is', null)
+        .eq('bounce_type', 'Permanent');
+
+      if (campaignId) {
+        query = query.eq('campaign_id', campaignId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const withLinkedIn: Array<{ id: string; email: string; name: string; linkedin_url: string }> = [];
+      const withoutLinkedIn: Array<{ id: string; email: string; name: string }> = [];
+      const seenIds = new Set<string>();
+
+      (data || []).forEach((send: any) => {
+        const contact = send.contacts;
+        if (contact && !seenIds.has(contact.id)) {
+          seenIds.add(contact.id);
+          if (contact.linkedin_url && contact.linkedin_url.trim() !== '') {
+            withLinkedIn.push({
+              id: contact.id,
+              email: send.recipient_email,
+              name: send.recipient_name || '',
+              linkedin_url: contact.linkedin_url,
+            });
+          } else {
+            withoutLinkedIn.push({
+              id: contact.id,
+              email: send.recipient_email,
+              name: send.recipient_name || '',
+            });
+          }
+        }
+      });
+
+      return { withLinkedIn, withoutLinkedIn };
+    } catch (error) {
+      console.error('Error fetching bounced contacts with details:', error);
+      return { withLinkedIn: [], withoutLinkedIn: [] };
+    }
+  };
+
   return {
     bases,
     isLoading,
@@ -418,6 +624,8 @@ export function useBases() {
     deleteContacts,
     getBouncedContactIds,
     updateContact,
+    cleanBouncedEmails,
+    getBouncedContactsWithDetails,
     refreshBases: fetchBases,
   };
 }

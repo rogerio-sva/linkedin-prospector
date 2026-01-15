@@ -53,3 +53,6 @@ verify_jwt = false
 
 [functions.sync-crm-history]
 verify_jwt = false
+
+[functions.sync-email-status]
+verify_jwt = false
