@@ -38,6 +38,63 @@ export type Database = {
         }
         Relationships: []
       }
+      cleanup_jobs: {
+        Row: {
+          bounces_found: number | null
+          completed_at: string | null
+          contacts_deleted: number | null
+          created_at: string
+          crm_reset: number | null
+          emails_cleared: number | null
+          errors_count: number | null
+          id: string
+          last_error: string | null
+          last_processed_id: string | null
+          phase: string | null
+          started_at: string | null
+          status: string
+          synced_count: number | null
+          total_to_sync: number | null
+          updated_at: string
+        }
+        Insert: {
+          bounces_found?: number | null
+          completed_at?: string | null
+          contacts_deleted?: number | null
+          created_at?: string
+          crm_reset?: number | null
+          emails_cleared?: number | null
+          errors_count?: number | null
+          id?: string
+          last_error?: string | null
+          last_processed_id?: string | null
+          phase?: string | null
+          started_at?: string | null
+          status?: string
+          synced_count?: number | null
+          total_to_sync?: number | null
+          updated_at?: string
+        }
+        Update: {
+          bounces_found?: number | null
+          completed_at?: string | null
+          contacts_deleted?: number | null
+          created_at?: string
+          crm_reset?: number | null
+          emails_cleared?: number | null
+          errors_count?: number | null
+          id?: string
+          last_error?: string | null
+          last_processed_id?: string | null
+          phase?: string | null
+          started_at?: string | null
+          status?: string
+          synced_count?: number | null
+          total_to_sync?: number | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       contact_activities: {
         Row: {
           activity_type: string

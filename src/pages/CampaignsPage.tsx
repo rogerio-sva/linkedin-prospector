@@ -13,6 +13,7 @@ import { ptBR } from "date-fns/locale";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CampaignMetricsPanel } from "@/components/CampaignMetricsPanel";
+import { GlobalCleanupStatus } from "@/components/GlobalCleanupStatus";
 import { cn } from "@/lib/utils";
 
 const CampaignsPage = () => {
@@ -307,6 +308,11 @@ const CampaignsPage = () => {
               </div>
             </div>
           </Card>
+        </div>
+
+        {/* Global Cleanup Panel */}
+        <div className="mb-6">
+          <GlobalCleanupStatus />
         </div>
 
         {/* Main Content */}
