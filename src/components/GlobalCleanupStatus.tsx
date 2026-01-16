@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Loader2, Trash2, RefreshCw, CheckCircle, AlertTriangle, Play, XCircle } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import { Loader2, Trash2, RefreshCw, CheckCircle, AlertTriangle, Play, XCircle, Pause } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -25,12 +25,19 @@ interface CleanupJob {
 }
 
 export function GlobalCleanupStatus() {
-  const [isStarting, setIsStarting] = useState(false);
-  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [autoContinue, setAutoContinue] = useState(false);
+  const [lastResult, setLastResult] = useState<any>(null);
   const queryClient = useQueryClient();
+  const autoContinueRef = useRef(autoContinue);
+
+  // Keep ref in sync with state
+  useEffect(() => {
+    autoContinueRef.current = autoContinue;
+  }, [autoContinue]);
 
   // Fetch pending emails count
-  const { data: pendingStats } = useQuery({
+  const { data: pendingStats, refetch: refetchStats } = useQuery({
     queryKey: ["pending-sync-stats"],
     queryFn: async () => {
       const { count: pendingCount } = await supabase
@@ -49,25 +56,13 @@ export function GlobalCleanupStatus() {
         currentBounces: bouncedCount || 0,
       };
     },
-    refetchInterval: 10000,
+    refetchInterval: autoContinue ? 5000 : 30000,
   });
 
   // Fetch latest job
   const { data: latestJob, refetch: refetchJob } = useQuery({
-    queryKey: ["cleanup-job", activeJobId],
+    queryKey: ["cleanup-job-latest"],
     queryFn: async () => {
-      if (activeJobId) {
-        const { data, error } = await supabase
-          .from("cleanup_jobs")
-          .select("*")
-          .eq("id", activeJobId)
-          .single();
-        
-        if (error) throw error;
-        return data as CleanupJob;
-      }
-
-      // Get latest running or recent job
       const { data, error } = await supabase
         .from("cleanup_jobs")
         .select("*")
@@ -78,21 +73,11 @@ export function GlobalCleanupStatus() {
       if (error && error.code !== "PGRST116") throw error;
       return data as CleanupJob | null;
     },
-    refetchInterval: (query) => {
-      const job = query.state.data;
-      if (job?.status === "running") return 2000;
-      return false;
-    },
+    refetchInterval: isProcessing ? 2000 : 10000,
   });
 
-  useEffect(() => {
-    if (latestJob?.status === "running" && !activeJobId) {
-      setActiveJobId(latestJob.id);
-    }
-  }, [latestJob, activeJobId]);
-
-  const startCleanup = async () => {
-    setIsStarting(true);
+  const processChunk = async () => {
+    setIsProcessing(true);
     try {
       const response = await supabase.functions.invoke("global-bounce-cleanup", {
         body: { action: "start" },
@@ -101,25 +86,54 @@ export function GlobalCleanupStatus() {
       if (response.error) throw response.error;
 
       const result = response.data;
-      setActiveJobId(result.jobId);
+      setLastResult(result);
       
-      toast.success("Limpeza global iniciada!", {
-        description: `Processando ${pendingStats?.pendingSync || 0} emails em background...`,
-        duration: 5000,
-      });
-
       // Refetch stats
-      queryClient.invalidateQueries({ queryKey: ["pending-sync-stats"] });
-      queryClient.invalidateQueries({ queryKey: ["cleanup-job"] });
-      refetchJob();
+      await refetchStats();
+      await refetchJob();
+
+      if (result.status === "partial" && autoContinueRef.current) {
+        // Auto-continue after a short delay
+        console.log("Auto-continuing to next chunk...");
+        setTimeout(() => {
+          if (autoContinueRef.current) {
+            processChunk();
+          }
+        }, 1000);
+      } else if (result.status === "completed") {
+        setAutoContinue(false);
+        toast.success("Limpeza global completa!", {
+          description: `${result.emailsCleared} emails limpos, ${result.contactsDeleted} contatos removidos.`,
+          duration: 10000,
+        });
+        setIsProcessing(false);
+      } else if (result.status === "failed") {
+        setAutoContinue(false);
+        toast.error("Erro na limpeza", {
+          description: result.message,
+        });
+        setIsProcessing(false);
+      } else {
+        setIsProcessing(false);
+      }
     } catch (error: any) {
-      console.error("Error starting cleanup:", error);
-      toast.error("Erro ao iniciar limpeza", {
+      console.error("Error processing chunk:", error);
+      toast.error("Erro ao processar", {
         description: error.message,
       });
-    } finally {
-      setIsStarting(false);
+      setAutoContinue(false);
+      setIsProcessing(false);
     }
+  };
+
+  const startWithAutoContinue = () => {
+    setAutoContinue(true);
+    processChunk();
+  };
+
+  const stopAutoContinue = () => {
+    setAutoContinue(false);
+    setIsProcessing(false);
   };
 
   const getStatusBadge = (status: string) => {
@@ -146,8 +160,9 @@ export function GlobalCleanupStatus() {
     }
   };
 
-  const progress = latestJob?.total_to_sync 
-    ? Math.round((latestJob.synced_count / latestJob.total_to_sync) * 100)
+  const job = lastResult || latestJob;
+  const progress = job?.total_to_sync 
+    ? Math.round(((job.synced || job.synced_count || 0) / job.total_to_sync) * 100)
     : 0;
 
   const estimatedTimeMinutes = pendingStats?.pendingSync 
@@ -176,37 +191,47 @@ export function GlobalCleanupStatus() {
         </div>
       </div>
 
-      {/* Progress (if job running) */}
-      {latestJob?.status === "running" && (
+      {/* Progress (if processing) */}
+      {(isProcessing || latestJob?.status === "running" || latestJob?.status === "partial") && (
         <div className="mb-4">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-muted-foreground">{getPhaseName(latestJob.phase)}</span>
+            <span className="text-sm text-muted-foreground">
+              {isProcessing ? getPhaseName(job?.phase || "sync") : "Progresso"}
+            </span>
             <span className="text-sm font-medium">{progress}%</span>
           </div>
           <Progress value={progress} className="h-2" />
-          <p className="text-xs text-muted-foreground mt-2">
-            {latestJob.synced_count.toLocaleString()} / {latestJob.total_to_sync.toLocaleString()} sincronizados
-          </p>
+          <div className="flex items-center justify-between mt-2">
+            <p className="text-xs text-muted-foreground">
+              {(job?.synced || job?.synced_count || 0).toLocaleString()} / {(job?.total_to_sync || 0).toLocaleString()} sincronizados
+            </p>
+            {autoContinue && (
+              <Badge variant="outline" className="text-xs">
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Auto-processando
+              </Badge>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Results (if completed or partial) */}
-      {latestJob && (latestJob.status === "completed" || latestJob.status === "partial") && (
+      {/* Results */}
+      {job && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 text-center">
           <div className="p-2 rounded bg-blue-500/10">
-            <p className="text-lg font-semibold text-blue-600">{latestJob.synced_count}</p>
+            <p className="text-lg font-semibold text-blue-600">{job.synced || job.synced_count || 0}</p>
             <p className="text-xs text-muted-foreground">Sincronizados</p>
           </div>
           <div className="p-2 rounded bg-red-500/10">
-            <p className="text-lg font-semibold text-red-600">{latestJob.bounces_found}</p>
+            <p className="text-lg font-semibold text-red-600">{job.bouncesFound || job.bounces_found || 0}</p>
             <p className="text-xs text-muted-foreground">Bounces</p>
           </div>
           <div className="p-2 rounded bg-orange-500/10">
-            <p className="text-lg font-semibold text-orange-600">{latestJob.emails_cleared}</p>
+            <p className="text-lg font-semibold text-orange-600">{job.emailsCleared || job.emails_cleared || 0}</p>
             <p className="text-xs text-muted-foreground">Emails limpos</p>
           </div>
           <div className="p-2 rounded bg-purple-500/10">
-            <p className="text-lg font-semibold text-purple-600">{latestJob.contacts_deleted}</p>
+            <p className="text-lg font-semibold text-purple-600">{job.contactsDeleted || job.contacts_deleted || 0}</p>
             <p className="text-xs text-muted-foreground">Deletados</p>
           </div>
         </div>
@@ -219,42 +244,62 @@ export function GlobalCleanupStatus() {
         </div>
       )}
 
-      {/* Action Button */}
+      {/* Action Buttons */}
       <div className="flex items-center gap-2">
-        <Button
-          onClick={startCleanup}
-          disabled={isStarting || latestJob?.status === "running"}
-          className="flex-1"
-          variant={latestJob?.status === "partial" ? "default" : "outline"}
-        >
-          {isStarting || latestJob?.status === "running" ? (
-            <>
-              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Processando...
-            </>
-          ) : latestJob?.status === "partial" ? (
-            <>
-              <RefreshCw className="h-4 w-4 mr-2" />
-              Continuar ({pendingStats?.pendingSync?.toLocaleString()} restantes)
-            </>
-          ) : (
-            <>
+        {autoContinue ? (
+          <Button
+            onClick={stopAutoContinue}
+            variant="destructive"
+            className="flex-1"
+          >
+            <Pause className="h-4 w-4 mr-2" />
+            Pausar Processamento
+          </Button>
+        ) : isProcessing ? (
+          <Button
+            disabled
+            className="flex-1"
+            variant="outline"
+          >
+            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            Processando chunk...
+          </Button>
+        ) : (
+          <>
+            <Button
+              onClick={startWithAutoContinue}
+              disabled={pendingStats?.pendingSync === 0 && latestJob?.status === "completed"}
+              className="flex-1"
+              variant={latestJob?.status === "partial" ? "default" : "outline"}
+            >
               <Play className="h-4 w-4 mr-2" />
-              Iniciar Limpeza Global
-            </>
-          )}
-        </Button>
+              {latestJob?.status === "partial" 
+                ? `Continuar (${pendingStats?.pendingSync?.toLocaleString()} restantes)`
+                : "Iniciar Limpeza"
+              }
+            </Button>
+            {latestJob?.status === "partial" && (
+              <Button
+                onClick={processChunk}
+                variant="outline"
+                title="Processar apenas 1 chunk"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+            )}
+          </>
+        )}
       </div>
 
       {/* Estimated time */}
-      {pendingStats?.pendingSync && pendingStats.pendingSync > 0 && latestJob?.status !== "running" && (
+      {pendingStats?.pendingSync && pendingStats.pendingSync > 0 && !isProcessing && (
         <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <AlertTriangle className="h-3 w-3" />
           <span>
             Tempo estimado: ~{estimatedTimeMinutes > 60 
               ? `${Math.floor(estimatedTimeMinutes / 60)}h ${estimatedTimeMinutes % 60}min`
               : `${estimatedTimeMinutes} min`
-            } (processando 200 emails por execução)
+            } (100 emails por chunk, ~50s cada)
           </span>
         </div>
       )}
