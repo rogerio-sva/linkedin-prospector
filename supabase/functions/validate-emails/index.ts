@@ -102,110 +102,110 @@ const handler = async (req: Request): Promise<Response> => {
       results.push(validation);
     }
 
-    // Validate new emails in batches of 50 (Emailable limit per request for single API)
-    const BATCH_SIZE = 50;
+    // Process emails in parallel with concurrency limit
+    const CONCURRENCY = 5; // Max 5 parallel requests
     let validated = 0;
     let errors = 0;
 
-    for (let i = 0; i < emailsToValidate.length; i += BATCH_SIZE) {
-      const batch = emailsToValidate.slice(i, i + BATCH_SIZE);
-      
-      // Validate each email individually (Emailable single verification endpoint)
-      for (const email of batch) {
-        try {
-          const response = await fetch(
-            `https://api.emailable.com/v1/verify?email=${encodeURIComponent(email)}&api_key=${EMAILABLE_API_KEY}`
-          );
+    // Helper function to validate a single email
+    const validateEmail = async (email: string): Promise<ValidationResult> => {
+      try {
+        const response = await fetch(
+          `https://api.emailable.com/v1/verify?email=${encodeURIComponent(email)}&api_key=${EMAILABLE_API_KEY}`
+        );
 
-          if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`Erro ao validar ${email}:`, errorText);
-            errors++;
-            
-            // Mark as unknown on API error
-            results.push({
-              email,
-              status: "unknown",
-              score: 0,
-              reason: "api_error",
-              state: "unknown",
-              free: false,
-              disposable: false,
-              accept_all: false,
-              role: false,
-            });
-            continue;
-          }
-
-          const data: EmailableResponse = await response.json();
-          
-          // Map Emailable state to our status
-          let status = data.state;
-          if (data.state === "deliverable") {
-            status = "deliverable";
-          } else if (data.state === "undeliverable") {
-            status = "undeliverable";
-          } else if (data.state === "risky") {
-            status = "risky";
-          } else {
-            status = "unknown";
-          }
-
-          const result: ValidationResult = {
-            email: data.email || email,
-            status,
-            score: data.score || 0,
-            reason: data.reason || "",
-            state: data.state || "unknown",
-            free: data.free || false,
-            disposable: data.disposable || false,
-            accept_all: data.accept_all || false,
-            role: data.role || false,
-          };
-
-          results.push(result);
-          validated++;
-
-          // Save to database
-          await supabase
-            .from("email_validations")
-            .upsert({
-              email: result.email.toLowerCase(),
-              status: result.status,
-              score: result.score,
-              reason: result.reason,
-              state: result.state,
-              free: result.free,
-              disposable: result.disposable,
-              accept_all: result.accept_all,
-              role: result.role,
-              validated_at: new Date().toISOString(),
-            }, {
-              onConflict: "email",
-            });
-
-          // Small delay to respect rate limits (30k/minute = 500/second)
-          await new Promise(resolve => setTimeout(resolve, 10));
-          
-        } catch (error) {
-          console.error(`Erro ao validar ${email}:`, error);
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error(`Erro ao validar ${email}:`, errorText);
           errors++;
-          
-          results.push({
+          return {
             email,
             status: "unknown",
             score: 0,
-            reason: "validation_error",
+            reason: "api_error",
             state: "unknown",
             free: false,
             disposable: false,
             accept_all: false,
             role: false,
-          });
+          };
         }
-      }
 
-      console.log(`Progresso: ${Math.min(i + BATCH_SIZE, emailsToValidate.length)}/${emailsToValidate.length} emails processados`);
+        const data: EmailableResponse = await response.json();
+        
+        let status = data.state;
+        if (data.state === "deliverable") {
+          status = "deliverable";
+        } else if (data.state === "undeliverable") {
+          status = "undeliverable";
+        } else if (data.state === "risky") {
+          status = "risky";
+        } else {
+          status = "unknown";
+        }
+
+        const result: ValidationResult = {
+          email: data.email || email,
+          status,
+          score: data.score || 0,
+          reason: data.reason || "",
+          state: data.state || "unknown",
+          free: data.free || false,
+          disposable: data.disposable || false,
+          accept_all: data.accept_all || false,
+          role: data.role || false,
+        };
+
+        validated++;
+
+        // Save to database
+        await supabase
+          .from("email_validations")
+          .upsert({
+            email: result.email.toLowerCase(),
+            status: result.status,
+            score: result.score,
+            reason: result.reason,
+            state: result.state,
+            free: result.free,
+            disposable: result.disposable,
+            accept_all: result.accept_all,
+            role: result.role,
+            validated_at: new Date().toISOString(),
+          }, {
+            onConflict: "email",
+          });
+
+        return result;
+      } catch (error) {
+        console.error(`Erro ao validar ${email}:`, error);
+        errors++;
+        return {
+          email,
+          status: "unknown",
+          score: 0,
+          reason: "validation_error",
+          state: "unknown",
+          free: false,
+          disposable: false,
+          accept_all: false,
+          role: false,
+        };
+      }
+    };
+
+    // Process in chunks with concurrency
+    for (let i = 0; i < emailsToValidate.length; i += CONCURRENCY) {
+      const chunk = emailsToValidate.slice(i, i + CONCURRENCY);
+      const chunkResults = await Promise.all(chunk.map(validateEmail));
+      results.push(...chunkResults);
+      
+      // Small delay between chunks to avoid rate limiting
+      if (i + CONCURRENCY < emailsToValidate.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+      
+      console.log(`Progresso: ${Math.min(i + CONCURRENCY, emailsToValidate.length)}/${emailsToValidate.length} emails processados`);
     }
 
     // Calculate summary
