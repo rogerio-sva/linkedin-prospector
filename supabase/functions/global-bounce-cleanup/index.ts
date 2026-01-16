@@ -41,7 +41,7 @@ serve(async (req: Request): Promise<Response> => {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    const { action, jobId } = await req.json();
+    const { action, jobId, auto_mode } = await req.json();
 
     // Action: status - Get current job status
     if (action === "status") {
@@ -76,6 +76,18 @@ serve(async (req: Request): Promise<Response> => {
         .single();
 
       let job = existingJob;
+
+      // In auto_mode from cron, only process if there's a pending job
+      if (auto_mode && !job) {
+        console.log("Cron triggered but no pending jobs - skipping");
+        return new Response(JSON.stringify({ 
+          status: "idle", 
+          message: "No pending cleanup jobs" 
+        }), {
+          status: 200,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
       if (!job) {
         // Count total emails to sync
@@ -334,7 +346,7 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
           crmReset,
           errors: errorsCount,
           remaining: remainingCount || 0,
-          message: `Sincronizado ${syncedCount} emails. Restam ${remainingCount}. Clique para continuar.`,
+          message: `Sincronizado ${syncedCount} emails. Restam ${remainingCount}. Processando automaticamente...`,
         };
       }
 
@@ -502,11 +514,12 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
       crmReset,
       errors: errorsCount,
       remaining: 0,
-      message: "Processando...",
+      message: "Job state unknown",
     };
-
   } catch (error: any) {
-    console.error(`Cleanup job ${jobId} failed:`, error);
+    console.error(`Error in processCleanupChunk for job ${jobId}:`, error);
+
+    // Update job with error status
     await supabase
       .from("cleanup_jobs")
       .update({
@@ -524,7 +537,7 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
       emailsCleared: job.emails_cleared || 0,
       contactsDeleted: job.contacts_deleted || 0,
       crmReset: job.crm_reset || 0,
-      errors: job.errors_count || 0,
+      errors: (job.errors_count || 0) + 1,
       remaining: 0,
       message: `Erro: ${error.message}`,
     };
