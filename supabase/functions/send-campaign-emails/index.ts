@@ -2,7 +2,32 @@ import { serve } from "https://deno.land/std@0.190.0/http/server.ts";
 import { Resend } from "https://esm.sh/resend@2.0.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 
-const resend = new Resend(Deno.env.get("RESEND_API_KEY"));
+// Domain to API Key mapping for multiple Resend accounts
+const DOMAIN_API_KEY_MAP: Record<string, string | undefined> = {
+  'dominions.com.br': Deno.env.get("RESEND_API_KEY"),
+  'academiadoperito.com': Deno.env.get("RESEND_API_KEY_2"),
+};
+
+// Get the correct Resend API key based on sender email domain
+function getResendApiKey(fromEmail: string): string {
+  const domain = fromEmail.split('@')[1]?.toLowerCase();
+  const apiKey = DOMAIN_API_KEY_MAP[domain];
+  
+  if (apiKey) {
+    console.log(`[Resend] Using API key for domain: ${domain}`);
+    return apiKey;
+  }
+  
+  // Fallback to default API key
+  console.log(`[Resend] Domain ${domain} not mapped, using default RESEND_API_KEY`);
+  return Deno.env.get("RESEND_API_KEY") || '';
+}
+
+// Get Resend instance for a specific sender email
+function getResendClient(fromEmail: string): Resend {
+  const apiKey = getResendApiKey(fromEmail);
+  return new Resend(apiKey);
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -97,6 +122,7 @@ function renderTemplate(template: Template, contact: Contact): { subject: string
 // OPTIMIZED: Batch database inserts for better performance
 async function sendEmailsWithBatchAPI(
   supabase: any,
+  resend: Resend,
   template: Template,
   contactsWithEmail: Contact[],
   campaignId: string,
@@ -472,7 +498,9 @@ serve(async (req: Request): Promise<Response> => {
         emailPayload.text = testBody;
       }
 
-      const emailResponse = await resend.emails.send(emailPayload);
+      // Get Resend client based on sender domain
+      const resendClient = getResendClient(fromEmail);
+      const emailResponse = await resendClient.emails.send(emailPayload);
 
       console.log("Test email sent:", emailResponse);
 
@@ -564,9 +592,13 @@ serve(async (req: Request): Promise<Response> => {
 
       console.log(`${contactsWithEmail.length} contacts have valid emails for type: ${emailType}`);
 
+      // Get Resend client based on sender domain
+      const resendClient = getResendClient(fromEmail);
+
       // Process batch using Batch API
       const results = await sendEmailsWithBatchAPI(
         supabase,
+        resendClient,
         template,
         contactsWithEmail,
         campaignId!,
@@ -646,6 +678,9 @@ serve(async (req: Request): Promise<Response> => {
 
     console.log(`${contactsWithEmail.length} contacts have valid emails for type: ${emailType}`);
 
+    // Get Resend client based on sender domain
+    const resendClient = getResendClient(fromEmail);
+
     // Create or update campaign
     let activeCampaignId = campaignId;
     if (!activeCampaignId) {
@@ -678,6 +713,7 @@ serve(async (req: Request): Promise<Response> => {
     // Process using Batch API
     const results = await sendEmailsWithBatchAPI(
       supabase,
+      resendClient,
       template,
       contactsWithEmail,
       activeCampaignId!,
