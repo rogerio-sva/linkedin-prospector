@@ -48,7 +48,7 @@ interface ValidationResult {
 
 type ValidationStatus = "idle" | "loading" | "validating" | "completed" | "error";
 
-const BATCH_SIZE = 100; // Process 100 emails at a time to the edge function
+const BATCH_SIZE = 20; // Process 20 emails at a time to avoid Edge Function timeout
 
 export function ValidateEmailsDialog({
   open,
