@@ -68,6 +68,7 @@ export const SendCampaignDialog = ({
   const [sendToSelected, setSendToSelected] = useState(initialSelectedContacts.length > 0);
   const [emailType, setEmailType] = useState<"personal" | "corporate" | "both">("personal");
   const [emailFormat, setEmailFormat] = useState<"text" | "html">("text");
+  const [ignoreAlreadySent, setIgnoreAlreadySent] = useState(false);
   
   // State for loaded contacts when base is selected in dialog
   const [loadedContacts, setLoadedContacts] = useState<LinkedInContact[]>([]);
@@ -144,34 +145,38 @@ export const SendCampaignDialog = ({
 
 
         // Get all contact IDs from this base that have received emails
-        // Using a simpler query that doesn't hit the .in() limit
+        // Skip this check if ignoreAlreadySent is enabled
         const contactIds = (allContacts || []).map(c => c.id);
+        let alreadySentIds = new Set<string>();
         
-        // Query in batches of 100 to avoid Bad Request
-        const batchSize = 100;
-        const alreadySentIds = new Set<string>();
-        
-        for (let i = 0; i < contactIds.length; i += batchSize) {
-          const batch = contactIds.slice(i, i + batchSize);
-          const { data: sentEmails, error: sentError } = await supabase
-            .from("email_sends")
-            .select("contact_id")
-            .in("contact_id", batch);
+        if (!ignoreAlreadySent) {
+          // Query in batches of 100 to avoid Bad Request
+          const batchSize = 100;
+          
+          for (let i = 0; i < contactIds.length; i += batchSize) {
+            const batch = contactIds.slice(i, i + batchSize);
+            const { data: sentEmails, error: sentError } = await supabase
+              .from("email_sends")
+              .select("contact_id")
+              .in("contact_id", batch);
 
-          if (sentError) {
-            console.error("Error fetching sent emails batch:", sentError);
-            continue;
+            if (sentError) {
+              console.error("Error fetching sent emails batch:", sentError);
+              continue;
+            }
+
+            (sentEmails || []).forEach(e => alreadySentIds.add(e.contact_id));
           }
-
-          (sentEmails || []).forEach(e => alreadySentIds.add(e.contact_id));
         }
         
         setAlreadySentCount(alreadySentIds.size);
 
-        // Filter out contacts that already received emails
-        const unsnetContacts = (allContacts || []).filter(c => !alreadySentIds.has(c.id));
+        // Filter out contacts that already received emails (unless ignoreAlreadySent is true)
+        const unsentContacts = ignoreAlreadySent 
+          ? allContacts || []
+          : (allContacts || []).filter(c => !alreadySentIds.has(c.id));
 
-        const mappedContacts: LinkedInContact[] = unsnetContacts.map((contact) => ({
+        const mappedContacts: LinkedInContact[] = unsentContacts.map((contact) => ({
           id: contact.id,
           firstName: contact.first_name || "",
           lastName: contact.last_name || "",
@@ -202,7 +207,7 @@ export const SendCampaignDialog = ({
     };
 
     loadBaseContacts();
-  }, [selectedSendBaseId, initialContacts.length]);
+  }, [selectedSendBaseId, initialContacts.length, ignoreAlreadySent]);
 
   // Reset state when dialog opens/closes
   useEffect(() => {
@@ -734,6 +739,28 @@ export const SendCampaignDialog = ({
                 : "⚠️ HTML pode ser classificado como promoção pelo Gmail."}
             </p>
           </div>
+
+          {/* Ignore Already Sent Checkbox */}
+          <Card className="p-3 bg-amber-50 dark:bg-amber-950/30 border-amber-200 dark:border-amber-800">
+            <div className="flex items-center gap-3">
+              <input
+                type="checkbox"
+                id="ignoreAlreadySent"
+                checked={ignoreAlreadySent}
+                onChange={(e) => setIgnoreAlreadySent(e.target.checked)}
+                className="rounded"
+                disabled={isSending}
+              />
+              <div>
+                <Label htmlFor="ignoreAlreadySent" className="cursor-pointer text-sm font-medium">
+                  Enviar para toda a base (incluir quem já recebeu)
+                </Label>
+                <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
+                  ⚠️ Contatos que já receberam emails anteriores serão incluídos nesta campanha.
+                </p>
+              </div>
+            </div>
+          </Card>
 
           {/* Send to selected or all */}
           {selectedContacts.length > 0 && (
