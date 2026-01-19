@@ -247,33 +247,35 @@ export const SearchProgress = ({
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-        <button
+      <div className="flex flex-wrap gap-2 text-xs">
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => {
             navigator.clipboard.writeText(runId);
             toast.success("Run ID copiado!");
           }}
-          className="flex items-center gap-1 font-mono bg-muted px-2 py-1 rounded hover:bg-muted-foreground/20 transition-colors cursor-pointer"
-          title="Clique para copiar Run ID completo"
+          className="h-7 text-xs font-mono gap-1.5"
         >
-          <span>Run: {runId.slice(0, 12)}...</span>
           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
-        </button>
-        <button
+          Copiar Run ID
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
           onClick={() => {
             navigator.clipboard.writeText(currentDatasetId);
             toast.success("Dataset ID copiado!");
           }}
-          className="flex items-center gap-1 font-mono bg-muted px-2 py-1 rounded hover:bg-muted-foreground/20 transition-colors cursor-pointer"
-          title="Clique para copiar Dataset ID completo"
+          className="h-7 text-xs font-mono gap-1.5"
         >
-          <span>Dataset: {currentDatasetId.slice(0, 12)}...</span>
           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
           </svg>
-        </button>
+          Copiar Dataset ID
+        </Button>
       </div>
     </Card>
   );

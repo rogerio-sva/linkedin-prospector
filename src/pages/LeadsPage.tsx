@@ -166,11 +166,20 @@ const LeadsPage = () => {
   };
 
   const handleSearch = async (filters: SearchFilters, forceNew = false) => {
-    // Check if there's an active search (prevent duplicate costs)
-    if (!forceNew && (activeSearch || activeRun)) {
-      setPendingFilters(filters);
-      setDuplicateSearchDialogOpen(true);
-      return;
+    // Only block if there's an active search with the SAME filters (prevent duplicate costs)
+    // Otherwise, let backend handle reuse logic
+    if (!forceNew && activeSearch) {
+      // Compare filters - only block if they're the same
+      const currentFilters = activeSearch.filters;
+      const isSameSearch = 
+        JSON.stringify(filters.contactJobTitle || []) === JSON.stringify(currentFilters.contactJobTitle || []) &&
+        JSON.stringify(filters.contactLocation || []) === JSON.stringify(currentFilters.contactLocation || []) &&
+        JSON.stringify(filters.companyIndustry || []) === JSON.stringify(currentFilters.companyIndustry || []);
+      
+      if (isSameSearch) {
+        toast.info("Essa busca já está em andamento. Aguarde a conclusão.");
+        return;
+      }
     }
 
     setIsLoading(true);

@@ -159,6 +159,24 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabaseClient = createClient(supabaseUrl, supabaseKey);
 
+    // Helper to normalize filters for comparison
+    const normalizeFilters = (f: Record<string, unknown>) => {
+      const sortArray = (arr: unknown) => Array.isArray(arr) ? [...arr].sort() : [];
+      return {
+        contactJobTitle: sortArray(f.contactJobTitle),
+        contactLocation: sortArray(f.contactLocation),
+        companyIndustry: sortArray(f.companyIndustry),
+        seniorityLevel: sortArray(f.seniorityLevel),
+        fetchCount: f.fetchCount || 1000,
+      };
+    };
+
+    const areFiltersEqual = (f1: Record<string, unknown>, f2: Record<string, unknown>) => {
+      const n1 = normalizeFilters(f1);
+      const n2 = normalizeFilters(f2);
+      return JSON.stringify(n1) === JSON.stringify(n2);
+    };
+
     // Check for existing runs with same filters (unless forceNew)
     if (!forceNew) {
       const { data: existingRuns, error: searchError } = await supabaseClient
@@ -166,58 +184,55 @@ serve(async (req) => {
         .select('*')
         .in('status', ['RUNNING', 'READY', 'SUCCEEDED', 'TIMED-OUT'])
         .order('created_at', { ascending: false })
-        .limit(10);
+        .limit(20);
 
       if (!searchError && existingRuns && existingRuns.length > 0) {
-        // Check for running searches first
-        const runningRun = existingRuns.find(r => r.status === 'RUNNING' || r.status === 'READY');
+        // Check for running searches with SAME filters
+        const runningRun = existingRuns.find(r => {
+          if (r.status !== 'RUNNING' && r.status !== 'READY') return false;
+          const runFilters = r.filters as Record<string, unknown> || {};
+          return areFiltersEqual(runFilters, filters);
+        });
+        
         if (runningRun) {
-          console.log('Found running search, reusing:', runningRun.run_id);
+          console.log('Found running search with same filters, reusing:', runningRun.run_id);
           return new Response(JSON.stringify({
             success: true,
             runId: runningRun.run_id,
             datasetId: runningRun.dataset_id,
             status: runningRun.status,
-            message: 'Já existe uma busca em andamento. Reaproveitando...',
+            message: 'Busca idêntica em andamento. Reaproveitando...',
             fetchCount: runningRun.fetch_count,
             reused: true,
+            sameFilters: true,
           }), {
             headers: { ...corsHeaders, 'Content-Type': 'application/json' },
           });
         }
 
-        // Check for recent successful/timed-out run with similar filters
-        const recentRun = existingRuns.find(r => 
-          (r.status === 'SUCCEEDED' || r.status === 'TIMED-OUT') && 
-          r.dataset_id && 
-          r.output_count > 0
-        );
+        // Check for recent successful/timed-out run with SAME filters and results
+        const recentRun = existingRuns.find(r => {
+          if (r.status !== 'SUCCEEDED' && r.status !== 'TIMED-OUT') return false;
+          if (!r.dataset_id || !r.output_count || r.output_count === 0) return false;
+          const runFilters = r.filters as Record<string, unknown> || {};
+          return areFiltersEqual(runFilters, filters);
+        });
         
         if (recentRun) {
-          // Check if filters are similar (simplified comparison)
-          const existingFilters = recentRun.filters as Record<string, unknown> || {};
-          const newFilters = filters as Record<string, unknown>;
-          
-          const isSimilar = 
-            JSON.stringify(existingFilters.contactJobTitle || []) === JSON.stringify(newFilters.contactJobTitle || []) &&
-            JSON.stringify(existingFilters.contactLocation || []) === JSON.stringify(newFilters.contactLocation || []) &&
-            JSON.stringify(existingFilters.companyIndustry || []) === JSON.stringify(newFilters.companyIndustry || []);
-          
-          if (isSimilar) {
-            console.log('Found similar recent search, reusing:', recentRun.run_id);
-            return new Response(JSON.stringify({
-              success: true,
-              runId: recentRun.run_id,
-              datasetId: recentRun.dataset_id,
-              status: recentRun.status,
-              message: `Busca similar encontrada com ${recentRun.output_count} contatos. Reaproveitando para evitar custos.`,
-              fetchCount: recentRun.fetch_count,
-              outputCount: recentRun.output_count,
-              reused: true,
-            }), {
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            });
-          }
+          console.log('Found completed search with same filters, reusing:', recentRun.run_id);
+          return new Response(JSON.stringify({
+            success: true,
+            runId: recentRun.run_id,
+            datasetId: recentRun.dataset_id,
+            status: recentRun.status,
+            message: `Busca idêntica encontrada com ${recentRun.output_count} contatos. Reaproveitando para evitar custos.`,
+            fetchCount: recentRun.fetch_count,
+            outputCount: recentRun.output_count,
+            reused: true,
+            sameFilters: true,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
         }
       }
     }
