@@ -361,6 +361,7 @@ export type Database = {
           recipient_email: string
           recipient_name: string | null
           resend_id: string | null
+          sender_domain: string | null
           sent_at: string | null
           status: string
           subject: string
@@ -386,6 +387,7 @@ export type Database = {
           recipient_email: string
           recipient_name?: string | null
           resend_id?: string | null
+          sender_domain?: string | null
           sent_at?: string | null
           status?: string
           subject: string
@@ -411,6 +413,7 @@ export type Database = {
           recipient_email?: string
           recipient_name?: string | null
           resend_id?: string | null
+          sender_domain?: string | null
           sent_at?: string | null
           status?: string
           subject?: string
