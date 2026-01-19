@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Linkedin, Settings, RefreshCw, Download, FolderPlus, Send } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { SearchHistory } from "@/components/SearchHistory";
 import { ExportMenu } from "@/components/ExportMenu";
 import { StatsCards } from "@/components/StatsCards";
 import { SearchProgress } from "@/components/SearchProgress";
+import { RecentSearches } from "@/components/RecentSearches";
 import { LegacyContactFilters, ContactFiltersState, filterContacts } from "@/components/ContactFilters";
 import { BasesList, Base } from "@/components/BasesList";
 import { CreateBaseDialog } from "@/components/CreateBaseDialog";
@@ -19,6 +20,7 @@ import { TemplatePreviewDialog } from "@/components/TemplatePreviewDialog";
 import { SendCampaignDialog } from "@/components/SendCampaignDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates, EmailTemplate } from "@/hooks/useEmailTemplates";
+import { useSearchRuns, SearchRun } from "@/hooks/useSearchRuns";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -97,6 +99,27 @@ const Index = () => {
   const [previewTemplateDialogOpen, setPreviewTemplateDialogOpen] = useState(false);
   const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
   const [sendCampaignDialogOpen, setSendCampaignDialogOpen] = useState(false);
+
+  // Search runs persistence
+  const { searchRuns, activeRun, clearActiveRun, deleteRun, refreshRuns } = useSearchRuns();
+
+  // Auto-resume active or timed-out runs from database
+  useEffect(() => {
+    if (activeRun && !activeSearch) {
+      setActiveSearch({
+        runId: activeRun.run_id,
+        datasetId: activeRun.dataset_id || "",
+        fetchCount: activeRun.fetch_count || 1000,
+        filters: (activeRun.filters as SearchFilters) || {},
+      });
+      
+      if (activeRun.status === "TIMED-OUT") {
+        toast.warning("Você tem uma busca que expirou. Pode retomar ou recuperar os dados.");
+      } else if (activeRun.status === "RUNNING" || activeRun.status === "READY") {
+        toast.info("Busca em andamento detectada. Acompanhe o progresso abaixo.");
+      }
+    }
+  }, [activeRun]);
 
   const handleEditTemplate = (template: EmailTemplate) => {
     setSelectedTemplate(template);
@@ -184,11 +207,31 @@ const Index = () => {
 
     setSearchHistory((prev) => [newSearch, ...prev]);
     setActiveSearch(null);
+    clearActiveRun();
+    refreshRuns();
   };
 
   const handleSearchCancel = () => {
     setActiveSearch(null);
+    clearActiveRun();
     toast.info("Busca cancelada. Os dados ainda podem estar sendo processados no Apify.");
+  };
+
+  const handleResumeRun = (run: SearchRun) => {
+    setActiveSearch({
+      runId: run.run_id,
+      datasetId: run.dataset_id || "",
+      fetchCount: run.fetch_count || 1000,
+      filters: (run.filters as SearchFilters) || {},
+    });
+  };
+
+  const handleRecoverData = (fetchedContacts: LinkedInContact[]) => {
+    setContacts(fetchedContacts);
+    setSelectedContacts([]);
+    setContactFilters(initialContactFilters);
+    setSelectedBaseId(null);
+    refreshRuns();
   };
 
   const handleRecoverDataset = async () => {
@@ -553,6 +596,16 @@ const Index = () => {
                 fetchCount={activeSearch.fetchCount}
                 onComplete={handleSearchComplete}
                 onCancel={handleSearchCancel}
+              />
+            )}
+
+            {/* Recent Searches */}
+            {!activeSearch && searchRuns.length > 0 && (
+              <RecentSearches
+                searchRuns={searchRuns}
+                onDeleteRun={deleteRun}
+                onResumeRun={handleResumeRun}
+                onRecoverData={handleRecoverData}
               />
             )}
 

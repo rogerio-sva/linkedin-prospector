@@ -1,8 +1,39 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+// Helper to update search run status in database
+const updateSearchRunStatus = async (runId: string, status: string, outputCount?: number, errorMessage?: string) => {
+  try {
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseClient = createClient(supabaseUrl, supabaseKey);
+    
+    const updateData: Record<string, unknown> = { status };
+    if (outputCount !== undefined) {
+      updateData.output_count = outputCount;
+    }
+    if (errorMessage) {
+      updateData.error_message = errorMessage;
+    }
+    
+    const { error } = await supabaseClient
+      .from('search_runs')
+      .update(updateData)
+      .eq('run_id', runId);
+    
+    if (error) {
+      console.error('Failed to update search run status:', error);
+    } else {
+      console.log(`Updated search run ${runId} status to ${status}`);
+    }
+  } catch (err) {
+    console.error('Database error updating search run:', err);
+  }
 };
 
 interface ApifyDatasetItem {
@@ -137,6 +168,16 @@ serve(async (req) => {
         const isTimedOut = runStatus === 'TIMED-OUT';
         const isFailed = runStatus === 'FAILED' || runStatus === 'ABORTED';
         
+        // Update status in database for terminal states
+        if (isTimedOut || isFailed) {
+          await updateSearchRunStatus(
+            runId, 
+            runStatus, 
+            stats.outputRecordCount || 0,
+            isFailed ? 'Busca falhou ou foi abortada' : undefined
+          );
+        }
+        
         return new Response(JSON.stringify({ 
           status: runStatus,
           datasetId,
@@ -214,6 +255,11 @@ serve(async (req) => {
       companyTechnologies: item.company_technologies,
       createdAt: new Date().toISOString(),
     }));
+
+    // Update status to SUCCEEDED in database
+    if (runId) {
+      await updateSearchRunStatus(runId, 'SUCCEEDED', contacts.length);
+    }
 
     return new Response(JSON.stringify({ 
       status: 'SUCCEEDED',
