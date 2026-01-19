@@ -134,8 +134,19 @@ serve(async (req) => {
       
       console.log(`Run ${runId} status: ${runStatus}`);
       
-      // If only checking status, return early
+      // If only checking status, still update DB for terminal states before returning
       if (checkStatusOnly) {
+        const isTerminal = ['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT'].includes(runStatus);
+        if (isTerminal) {
+          const isFailed = runStatus === 'FAILED' || runStatus === 'ABORTED';
+          await updateSearchRunStatus(
+            runId,
+            runStatus,
+            stats.outputRecordCount || 0,
+            isFailed ? 'Busca falhou ou foi abortada' : undefined
+          );
+        }
+        
         return new Response(JSON.stringify({ 
           status: runStatus,
           datasetId,
