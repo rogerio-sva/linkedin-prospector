@@ -191,6 +191,37 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
 
       console.log(`Found ${emailsToSync?.length || 0} emails to sync in this chunk`);
 
+      // LOOP DETECTION: If query returns 0 but there are still pending emails, reset cursor
+      if ((emailsToSync?.length || 0) === 0 && job.last_processed_id) {
+        const { count: stillPending } = await supabase
+          .from("email_sends")
+          .select("*", { count: "exact", head: true })
+          .not("resend_id", "is", null)
+          .in("status", ["pending", "sent"]);
+
+        if ((stillPending || 0) > 0) {
+          console.log(`LOOP DETECTED: 0 results but ${stillPending} pending. Resetting cursor.`);
+          await supabase
+            .from("cleanup_jobs")
+            .update({ last_processed_id: null })
+            .eq("id", jobId);
+          
+          // Refetch without cursor
+          const { data: retryEmails } = await supabase
+            .from("email_sends")
+            .select("id, resend_id, contact_id, recipient_email, status")
+            .not("resend_id", "is", null)
+            .in("status", ["pending", "sent"])
+            .order("id", { ascending: true })
+            .limit(BATCH_SIZE);
+          
+          if (retryEmails && retryEmails.length > 0) {
+            // Replace emailsToSync reference and continue processing
+            Object.assign(emailsToSync || [], retryEmails);
+          }
+        }
+      }
+
       if (resendApiKey && emailsToSync && emailsToSync.length > 0) {
         let lastProcessedId = job.last_processed_id;
         let chunkSynced = 0;
@@ -215,6 +246,19 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
                 // Don't skip, retry on next chunk
                 break;
               }
+              
+              // Handle permanent API errors (404 = email not found in Resend)
+              if (response.status === 404) {
+                console.log(`Email ${email.resend_id} not found in Resend, marking as failed`);
+                await supabase
+                  .from("email_sends")
+                  .update({ status: "failed" })
+                  .eq("id", email.id);
+                chunkSynced++;
+                lastProcessedId = email.id;
+                continue;
+              }
+              
               console.error(`Resend API error for ${email.resend_id}: ${response.status}`);
               errorsCount++;
               lastProcessedId = email.id;
