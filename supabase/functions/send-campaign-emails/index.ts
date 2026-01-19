@@ -481,11 +481,16 @@ serve(async (req: Request): Promise<Response> => {
 
     // Handle direct test send (synchronous - quick)
     if (testRecipient && testSubject && testBody) {
-      console.log(`Sending test email to ${testRecipient.email} (format: ${emailFormat})...`);
+      // Support both string and object format for testRecipient
+      const recipientEmail = typeof testRecipient === 'string' 
+        ? testRecipient 
+        : testRecipient.email;
+        
+      console.log(`Sending test email to ${recipientEmail} (format: ${emailFormat})...`);
       
       const emailPayload: any = {
         from: `${fromName} <${fromEmail}>`,
-        to: [testRecipient.email],
+        to: [recipientEmail],
         reply_to: replyTo || fromEmail,
         subject: testSubject,
       };
