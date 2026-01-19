@@ -308,22 +308,20 @@ async function processCleanupChunk(
               updateData.bounce_message = resendData.bounce_message || null;
               chunkBounces++;
 
-              // Add to suppression list
-              const isPermanent = resendData.bounce_type === "permanent" || 
-                                 resendData.bounce_type === "hard" ||
-                                 !resendData.bounce_type;
-
-              if (isPermanent) {
-                await supabase
-                  .from("suppressed_emails")
-                  .upsert({
-                    email: email.recipient_email.toLowerCase(),
-                    reason: "bounce",
-                    bounce_type: resendData.bounce_type || "permanent",
-                    source_contact_id: email.contact_id,
-                    original_error: resendData.bounce_message,
-                  }, { onConflict: "email" });
-              }
+              // Add ALL bounces to suppression list (Resend suppresses transients too)
+              const isTransient = resendData.bounce_type === "Transient" || 
+                                 resendData.bounce_type === "transient" ||
+                                 resendData.bounce_type === "soft";
+              
+              await supabase
+                .from("suppressed_emails")
+                .upsert({
+                  email: email.recipient_email.toLowerCase(),
+                  reason: isTransient ? "soft_bounce" : "bounce",
+                  bounce_type: resendData.bounce_type || "permanent",
+                  source_contact_id: email.contact_id,
+                  original_error: resendData.bounce_message,
+                }, { onConflict: "email" });
             } else if (lastEvent === "complained") {
               updateData.status = "complained";
               updateData.complained_at = new Date().toISOString();
