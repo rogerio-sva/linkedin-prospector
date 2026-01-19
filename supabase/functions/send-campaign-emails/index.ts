@@ -5,7 +5,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
 // Domain to API Key mapping for multiple Resend accounts
 const DOMAIN_API_KEY_MAP: Record<string, string | undefined> = {
   'dominions.com.br': Deno.env.get("RESEND_API_KEY"),
-  'academiadoperito.com': Deno.env.get("RESEND_API_KEY_2"),
+  'academiadoperito.com': Deno.env.get("RESEND_API_KEY"),
+  'fatopericias.com.br': Deno.env.get("RESEND_API_KEY_2"),
 };
 
 // Get the correct Resend API key based on sender email domain
