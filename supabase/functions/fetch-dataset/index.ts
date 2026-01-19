@@ -134,10 +134,22 @@ serve(async (req) => {
       }
       
       if (runStatus !== 'SUCCEEDED') {
+        const isTimedOut = runStatus === 'TIMED-OUT';
+        const isFailed = runStatus === 'FAILED' || runStatus === 'ABORTED';
+        
         return new Response(JSON.stringify({ 
           status: runStatus,
-          message: `A busca terminou com status: ${runStatus}`,
-          error: runStatus === 'FAILED' || runStatus === 'ABORTED' ? 'Busca falhou ou foi abortada' : undefined
+          datasetId,
+          message: isTimedOut 
+            ? 'A busca expirou. Você pode retomar de onde parou.' 
+            : `A busca terminou com status: ${runStatus}`,
+          error: isFailed ? 'Busca falhou ou foi abortada' : undefined,
+          canResurrect: isTimedOut,
+          stats: {
+            inputRecordCount: stats.inputRecordCount || 0,
+            outputRecordCount: stats.outputRecordCount || 0,
+            durationMs: stats.runTimeSecs ? stats.runTimeSecs * 1000 : 0,
+          }
         }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
