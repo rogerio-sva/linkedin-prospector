@@ -37,7 +37,16 @@ serve(async (req: Request): Promise<Response> => {
   try {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    
+    // Load all Resend API keys for multi-account support
     const resendApiKey = Deno.env.get("RESEND_API_KEY");
+    const resendApiKey2 = Deno.env.get("RESEND_API_KEY_2");
+    
+    // Domain to API key mapping
+    const domainApiKeyMap: Record<string, string | undefined> = {
+      'fatopericias.com.br': resendApiKey2,
+      // Default domains use primary key
+    };
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
@@ -129,7 +138,7 @@ serve(async (req: Request): Promise<Response> => {
       }
 
       // Process synchronously (not in background) to avoid timeout issues
-      const result = await processCleanupChunk(supabase, job, resendApiKey);
+      const result = await processCleanupChunk(supabase, job, resendApiKey, domainApiKeyMap);
 
       return new Response(JSON.stringify(result), {
         status: 200,
@@ -150,7 +159,12 @@ serve(async (req: Request): Promise<Response> => {
   }
 });
 
-async function processCleanupChunk(supabase: any, job: any, resendApiKey: string | undefined): Promise<CleanupResult> {
+async function processCleanupChunk(
+  supabase: any, 
+  job: any, 
+  defaultResendApiKey: string | undefined,
+  domainApiKeyMap: Record<string, string | undefined>
+): Promise<CleanupResult> {
   const jobId = job.id;
   console.log(`Processing chunk for job ${jobId}, current synced: ${job.synced_count}`);
 
@@ -170,9 +184,10 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
         .eq("id", jobId);
 
       // Get pending emails to sync - use last_processed_id for cursor-based pagination
+      // Include sender_domain for multi-account API key selection
       let query = supabase
         .from("email_sends")
-        .select("id, resend_id, contact_id, recipient_email, status")
+        .select("id, resend_id, contact_id, recipient_email, status, sender_domain")
         .not("resend_id", "is", null)
         .in("status", ["pending", "sent"])
         .order("id", { ascending: true })
@@ -206,10 +221,10 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
             .update({ last_processed_id: null })
             .eq("id", jobId);
           
-          // Refetch without cursor
+          // Refetch without cursor - include sender_domain
           const { data: retryEmails } = await supabase
             .from("email_sends")
-            .select("id, resend_id, contact_id, recipient_email, status")
+            .select("id, resend_id, contact_id, recipient_email, status, sender_domain")
             .not("resend_id", "is", null)
             .in("status", ["pending", "sent"])
             .order("id", { ascending: true })
@@ -222,7 +237,7 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
         }
       }
 
-      if (resendApiKey && emailsToSync && emailsToSync.length > 0) {
+      if (defaultResendApiKey && emailsToSync && emailsToSync.length > 0) {
         let lastProcessedId = job.last_processed_id;
         let chunkSynced = 0;
         let chunkBounces = 0;
@@ -232,10 +247,22 @@ async function processCleanupChunk(supabase: any, job: any, resendApiKey: string
             // Rate limiting delay
             await delay(RATE_LIMIT_DELAY);
 
-            // Fetch status from Resend API
+            // Select the correct API key based on sender_domain
+            const apiKeyToUse = email.sender_domain 
+              ? (domainApiKeyMap[email.sender_domain] || defaultResendApiKey)
+              : defaultResendApiKey;
+            
+            if (!apiKeyToUse) {
+              console.error(`No API key available for domain: ${email.sender_domain}`);
+              errorsCount++;
+              lastProcessedId = email.id;
+              continue;
+            }
+
+            // Fetch status from Resend API with the correct key
             const response = await fetch(`https://api.resend.com/emails/${email.resend_id}`, {
               headers: {
-                Authorization: `Bearer ${resendApiKey}`,
+                Authorization: `Bearer ${apiKeyToUse}`,
               },
             });
 

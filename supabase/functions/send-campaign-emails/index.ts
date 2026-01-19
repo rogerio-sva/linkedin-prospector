@@ -319,6 +319,7 @@ async function sendEmailsWithBatchAPI(
           
           if (result.id) {
             // Success - accumulate for batch insert
+            const senderDomain = fromEmail.split('@')[1]?.toLowerCase() || null;
             successEmailSends.push({
               campaign_id: campaignId,
               contact_id: data.contact.id,
@@ -329,6 +330,7 @@ async function sendEmailsWithBatchAPI(
               status: "sent",
               resend_id: result.id,
               sent_at: now,
+              sender_domain: senderDomain,
             });
             
             successContactIds.push(data.contact.id);
