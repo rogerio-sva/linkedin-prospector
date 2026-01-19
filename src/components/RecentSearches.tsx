@@ -40,17 +40,16 @@ export const RecentSearches = ({
   onResumeRun,
   onRecoverData,
 }: RecentSearchesProps) => {
-  const [isOpen, setIsOpen] = useState(false);
+  const [isOpen, setIsOpen] = useState(true); // Start open to show history
   const [loadingRunId, setLoadingRunId] = useState<string | null>(null);
 
-  // Filter to show only completed/failed/timed-out runs (not RUNNING)
+  // Filter to show only completed/failed/timed-out runs (not RUNNING/READY - those show in SearchProgress)
   const completedRuns = searchRuns.filter(
     (run) => run.status !== "RUNNING" && run.status !== "READY"
   );
 
-  if (completedRuns.length === 0) {
-    return null;
-  }
+  // Show component even if empty so user knows where history will appear
+  // Also show if there are RUNNING/READY runs for context
 
   const getStatusIcon = (status: string) => {
     switch (status) {
@@ -152,9 +151,11 @@ export const RecentSearches = ({
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" />
               <span className="font-medium">Buscas Recentes</span>
-              <Badge variant="outline" className="ml-2">
-                {completedRuns.length}
-              </Badge>
+              {completedRuns.length > 0 && (
+                <Badge variant="outline" className="ml-2">
+                  {completedRuns.length}
+                </Badge>
+              )}
             </div>
             {isOpen ? (
               <ChevronUp className="h-4 w-4 text-muted-foreground" />
@@ -165,7 +166,12 @@ export const RecentSearches = ({
         </CollapsibleTrigger>
         
         <CollapsibleContent className="mt-4 space-y-3">
-          {completedRuns.map((run) => (
+          {completedRuns.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Nenhuma busca concluída ainda. As buscas aparecerão aqui após finalizarem.
+            </p>
+          ) : (
+            completedRuns.map((run) => (
             <div
               key={run.id}
               className="flex flex-col gap-2 p-3 rounded-lg border bg-muted/30"
@@ -249,7 +255,8 @@ export const RecentSearches = ({
                 </Button>
               </div>
             </div>
-          ))}
+          ))
+          )}
         </CollapsibleContent>
       </Card>
     </Collapsible>
