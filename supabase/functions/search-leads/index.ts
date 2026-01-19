@@ -149,8 +149,78 @@ serve(async (req) => {
       throw new Error('APIFY_API_TOKEN is not configured');
     }
 
-    const filters = await req.json();
+    const body = await req.json();
+    const { forceNew, ...filters } = body;
     console.log('Received search filters:', JSON.stringify(filters));
+    console.log('Force new search:', forceNew);
+
+    // Initialize Supabase client
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabaseClient = createClient(supabaseUrl, supabaseKey);
+
+    // Check for existing runs with same filters (unless forceNew)
+    if (!forceNew) {
+      const { data: existingRuns, error: searchError } = await supabaseClient
+        .from('search_runs')
+        .select('*')
+        .in('status', ['RUNNING', 'READY', 'SUCCEEDED', 'TIMED-OUT'])
+        .order('created_at', { ascending: false })
+        .limit(10);
+
+      if (!searchError && existingRuns && existingRuns.length > 0) {
+        // Check for running searches first
+        const runningRun = existingRuns.find(r => r.status === 'RUNNING' || r.status === 'READY');
+        if (runningRun) {
+          console.log('Found running search, reusing:', runningRun.run_id);
+          return new Response(JSON.stringify({
+            success: true,
+            runId: runningRun.run_id,
+            datasetId: runningRun.dataset_id,
+            status: runningRun.status,
+            message: 'Já existe uma busca em andamento. Reaproveitando...',
+            fetchCount: runningRun.fetch_count,
+            reused: true,
+          }), {
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
+        // Check for recent successful/timed-out run with similar filters
+        const recentRun = existingRuns.find(r => 
+          (r.status === 'SUCCEEDED' || r.status === 'TIMED-OUT') && 
+          r.dataset_id && 
+          r.output_count > 0
+        );
+        
+        if (recentRun) {
+          // Check if filters are similar (simplified comparison)
+          const existingFilters = recentRun.filters as Record<string, unknown> || {};
+          const newFilters = filters as Record<string, unknown>;
+          
+          const isSimilar = 
+            JSON.stringify(existingFilters.contactJobTitle || []) === JSON.stringify(newFilters.contactJobTitle || []) &&
+            JSON.stringify(existingFilters.contactLocation || []) === JSON.stringify(newFilters.contactLocation || []) &&
+            JSON.stringify(existingFilters.companyIndustry || []) === JSON.stringify(newFilters.companyIndustry || []);
+          
+          if (isSimilar) {
+            console.log('Found similar recent search, reusing:', recentRun.run_id);
+            return new Response(JSON.stringify({
+              success: true,
+              runId: recentRun.run_id,
+              datasetId: recentRun.dataset_id,
+              status: recentRun.status,
+              message: `Busca similar encontrada com ${recentRun.output_count} contatos. Reaproveitando para evitar custos.`,
+              fetchCount: recentRun.fetch_count,
+              outputCount: recentRun.output_count,
+              reused: true,
+            }), {
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            });
+          }
+        }
+      }
+    }
 
     // Build Apify input from filters
     const apifyInput: Record<string, unknown> = {};
@@ -223,10 +293,6 @@ serve(async (req) => {
 
     // Save run to database for persistence
     try {
-      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
-      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-      const supabaseClient = createClient(supabaseUrl, supabaseKey);
-      
       const { error: insertError } = await supabaseClient
         .from('search_runs')
         .insert({
@@ -254,6 +320,7 @@ serve(async (req) => {
       status,
       message: 'Busca iniciada! Acompanhe o progresso abaixo.',
       fetchCount: apifyInput.fetch_count,
+      reused: false,
     }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

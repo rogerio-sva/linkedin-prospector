@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect } from "react";
-import { Download, RefreshCw, FolderPlus, Send, Settings } from "lucide-react";
+import { useState, useMemo, useEffect, useCallback } from "react";
+import { Download, RefreshCw, FolderPlus, Send, Settings, AlertTriangle } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SearchForm } from "@/components/SearchForm";
@@ -16,9 +16,11 @@ import { SendCampaignDialog } from "@/components/SendCampaignDialog";
 import { BulkTagActions } from "@/components/BulkTagActions";
 import { TagFilterDropdown } from "@/components/TagFilterDropdown";
 import { ManageTagsDialog } from "@/components/ManageTagsDialog";
+import { RecentSearches } from "@/components/RecentSearches";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
 import { useTags } from "@/hooks/useTags";
+import { useSearchRuns, SearchRun } from "@/hooks/useSearchRuns";
 import { LinkedInContact, SearchQuery, SearchFilters } from "@/types/contact";
 import { mockSearchHistory } from "@/lib/mockData";
 import { toast } from "sonner";
@@ -44,6 +46,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface ActiveSearch {
   runId: string;
@@ -103,6 +106,25 @@ const LeadsPage = () => {
   const [manageTagsDialogOpen, setManageTagsDialogOpen] = useState(false);
   const [tagFilterIds, setTagFilterIds] = useState<string[]>([]);
 
+  // Search runs persistence
+  const { searchRuns, activeRun, clearActiveRun, deleteRun, refreshRuns } = useSearchRuns();
+  const [duplicateSearchDialogOpen, setDuplicateSearchDialogOpen] = useState(false);
+  const [pendingFilters, setPendingFilters] = useState<SearchFilters | null>(null);
+
+  // Auto-resume active search on page load
+  useEffect(() => {
+    if (activeRun && !activeSearch) {
+      const filters = activeRun.filters as SearchFilters || {};
+      setActiveSearch({
+        runId: activeRun.run_id,
+        datasetId: activeRun.dataset_id || "",
+        fetchCount: activeRun.fetch_count || 1000,
+        filters,
+      });
+      toast.info("Busca em andamento detectada. Retomando progresso...");
+    }
+  }, [activeRun]);
+
   // Load contact tags when contacts change
   useEffect(() => {
     if (contacts.length > 0) {
@@ -143,14 +165,21 @@ const LeadsPage = () => {
     );
   };
 
-  const handleSearch = async (filters: SearchFilters) => {
+  const handleSearch = async (filters: SearchFilters, forceNew = false) => {
+    // Check if there's an active search (prevent duplicate costs)
+    if (!forceNew && (activeSearch || activeRun)) {
+      setPendingFilters(filters);
+      setDuplicateSearchDialogOpen(true);
+      return;
+    }
+
     setIsLoading(true);
 
     try {
       console.log("Starting search with filters:", filters);
 
       const { data, error } = await supabase.functions.invoke("search-leads", {
-        body: filters,
+        body: { ...filters, forceNew },
       });
 
       if (error) {
@@ -163,6 +192,31 @@ const LeadsPage = () => {
         throw new Error(data.error);
       }
 
+      // If reused an existing search
+      if (data.reused) {
+        toast.info(data.message || "Reaproveitando busca existente");
+        
+        if (data.status === "SUCCEEDED") {
+          // Fetch results directly
+          const { data: fetchData, error: fetchError } = await supabase.functions.invoke("fetch-dataset", {
+            body: { datasetId: data.datasetId, runId: data.runId },
+          });
+
+          if (fetchError) throw new Error(fetchError.message);
+
+          if (fetchData.contacts) {
+            const fetchedContacts = fetchData.contacts.map((contact: LinkedInContact) => ({
+              ...contact,
+              createdAt: new Date(contact.createdAt),
+            }));
+            setContacts(fetchedContacts);
+            toast.success(`${fetchedContacts.length} contatos carregados da busca anterior!`);
+          }
+          setIsLoading(false);
+          return;
+        }
+      }
+
       setActiveSearch({
         runId: data.runId,
         datasetId: data.datasetId,
@@ -171,12 +225,21 @@ const LeadsPage = () => {
       });
 
       setSelectedBaseId(null);
-      toast.success("Busca iniciada! Acompanhe o progresso abaixo.");
+      refreshRuns();
+      toast.success(data.reused ? "Retomando busca existente..." : "Busca iniciada! Acompanhe o progresso abaixo.");
     } catch (error) {
       console.error("Search error:", error);
       toast.error(error instanceof Error ? error.message : "Erro desconhecido");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForceNewSearch = () => {
+    setDuplicateSearchDialogOpen(false);
+    if (pendingFilters) {
+      handleSearch(pendingFilters, true);
+      setPendingFilters(null);
     }
   };
 
@@ -210,11 +273,56 @@ const LeadsPage = () => {
 
     setSearchHistory((prev) => [newSearch, ...prev]);
     setActiveSearch(null);
+    clearActiveRun();
+    refreshRuns();
   };
 
   const handleSearchCancel = () => {
     setActiveSearch(null);
+    clearActiveRun();
     toast.info("Busca cancelada. Os dados ainda podem estar sendo processados no Apify.");
+  };
+
+  const handleResumeRun = useCallback(async (run: SearchRun) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("resurrect-run", {
+        body: { runId: run.run_id, timeoutSecs: 3600 },
+      });
+
+      if (error) throw new Error(error.message);
+
+      if (data.success) {
+        const filters = run.filters as SearchFilters || {};
+        setActiveSearch({
+          runId: run.run_id,
+          datasetId: data.datasetId || run.dataset_id || "",
+          fetchCount: run.fetch_count || 1000,
+          filters,
+        });
+        refreshRuns();
+        toast.success("Busca retomada! Continuando de onde parou...");
+      } else {
+        throw new Error(data.error || "Falha ao retomar busca");
+      }
+    } catch (err) {
+      console.error("Error resuming run:", err);
+      toast.error(`Erro ao retomar: ${err instanceof Error ? err.message : 'Erro desconhecido'}`);
+    }
+  }, [refreshRuns]);
+
+  const handleRecoverData = useCallback((fetchedContacts: LinkedInContact[]) => {
+    setContacts(fetchedContacts);
+    setSelectedContacts([]);
+    setContactFilters(initialContactFilters);
+    setSelectedBaseId(null);
+    setTagFilterIds([]);
+  }, []);
+
+  const handleSelectRecentRun = (run: SearchRun) => {
+    if (run.dataset_id) {
+      setDatasetId(run.dataset_id);
+      setRunId(run.run_id);
+    }
   };
 
   const handleRecoverDataset = async () => {
@@ -433,6 +541,34 @@ const LeadsPage = () => {
         onDeleteTag={deleteTag}
       />
 
+      {/* Duplicate Search Warning Dialog */}
+      <AlertDialog open={duplicateSearchDialogOpen} onOpenChange={setDuplicateSearchDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-500" />
+              Busca já em andamento
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {activeSearch 
+                ? "Você já tem uma busca em andamento. Iniciar outra busca pode gerar custos duplicados no Apify."
+                : activeRun?.status === "TIMED-OUT" 
+                  ? "Você tem uma busca expirada. Você pode retomar ela ou recuperar os contatos já coletados."
+                  : "Existe uma busca recente. Você pode reutilizar os dados ou iniciar uma nova."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-col sm:flex-row gap-2">
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleForceNewSearch}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Iniciar nova mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Header Actions */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -451,14 +587,44 @@ const LeadsPage = () => {
                 Recuperar
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Recuperar Busca</DialogTitle>
                 <DialogDescription>
-                  Informe o Dataset ID para recuperar os resultados de uma busca anterior.
+                  Selecione uma busca recente ou informe o Dataset ID manualmente.
                 </DialogDescription>
               </DialogHeader>
               <div className="space-y-4 py-4">
+                {/* Recent runs list */}
+                {searchRuns.filter(r => r.dataset_id && (r.status === "SUCCEEDED" || r.status === "TIMED-OUT")).length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Buscas Recentes</Label>
+                    <ScrollArea className="h-[150px] rounded-md border p-2">
+                      <div className="space-y-2">
+                        {searchRuns
+                          .filter(r => r.dataset_id && (r.status === "SUCCEEDED" || r.status === "TIMED-OUT"))
+                          .slice(0, 5)
+                          .map((run) => (
+                            <button
+                              key={run.id}
+                              onClick={() => handleSelectRecentRun(run)}
+                              className={`w-full text-left p-2 rounded-md border transition-colors hover:bg-muted ${
+                                datasetId === run.dataset_id ? 'bg-primary/10 border-primary' : ''
+                              }`}
+                            >
+                              <p className="text-sm font-medium truncate">
+                                {run.output_count.toLocaleString()} contatos
+                              </p>
+                              <p className="text-xs text-muted-foreground truncate">
+                                Dataset: {run.dataset_id?.slice(0, 15)}...
+                              </p>
+                            </button>
+                          ))}
+                      </div>
+                    </ScrollArea>
+                  </div>
+                )}
+                
                 <div className="space-y-2">
                   <Label htmlFor="datasetId">Dataset ID *</Label>
                   <Input
@@ -534,6 +700,14 @@ const LeadsPage = () => {
 
         {/* Main Content */}
         <div className="lg:col-span-3 space-y-6">
+          {/* Recent Searches from DB */}
+          <RecentSearches
+            searchRuns={searchRuns}
+            onDeleteRun={deleteRun}
+            onResumeRun={handleResumeRun}
+            onRecoverData={handleRecoverData}
+          />
+
           {/* Search Form */}
           <Card className="p-6 shadow-card">
             <SearchForm onSearch={handleSearch} isLoading={isLoading || !!activeSearch} />
