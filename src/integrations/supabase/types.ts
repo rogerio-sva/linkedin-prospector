@@ -510,6 +510,45 @@ export type Database = {
         }
         Relationships: []
       }
+      search_runs: {
+        Row: {
+          created_at: string | null
+          dataset_id: string | null
+          error_message: string | null
+          fetch_count: number | null
+          filters: Json | null
+          id: string
+          output_count: number | null
+          run_id: string
+          status: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          dataset_id?: string | null
+          error_message?: string | null
+          fetch_count?: number | null
+          filters?: Json | null
+          id?: string
+          output_count?: number | null
+          run_id: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          dataset_id?: string | null
+          error_message?: string | null
+          fetch_count?: number | null
+          filters?: Json | null
+          id?: string
+          output_count?: number | null
+          run_id?: string
+          status?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
       suppressed_emails: {
         Row: {
           bounce_type: string | null

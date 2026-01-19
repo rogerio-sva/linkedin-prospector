@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -219,6 +220,31 @@ serve(async (req) => {
     const status = runData.data.status;
     
     console.log(`Actor run started. Run ID: ${runId}, Dataset ID: ${datasetId}, Status: ${status}`);
+
+    // Save run to database for persistence
+    try {
+      const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+      const supabaseKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+      const supabaseClient = createClient(supabaseUrl, supabaseKey);
+      
+      const { error: insertError } = await supabaseClient
+        .from('search_runs')
+        .insert({
+          run_id: runId,
+          dataset_id: datasetId,
+          status: status,
+          filters: filters,
+          fetch_count: apifyInput.fetch_count as number,
+        });
+      
+      if (insertError) {
+        console.error('Failed to save search run to database:', insertError);
+      } else {
+        console.log('Search run saved to database');
+      }
+    } catch (dbError) {
+      console.error('Database error:', dbError);
+    }
 
     // Return immediately with the run info - frontend will poll for status
     return new Response(JSON.stringify({ 
