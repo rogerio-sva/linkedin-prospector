@@ -149,10 +149,13 @@ serve(async (req) => {
           continue;
         }
         
-        if (statusData.data?.status !== 'SUCCEEDED') {
-          errors.push(`Run ${runId}: Status is ${statusData.data?.status}`);
+        const runStatus = statusData.data?.status;
+        // Allow SUCCEEDED, FAILED, or TIMED-OUT runs - they may still have data in the dataset
+        if (!['SUCCEEDED', 'FAILED', 'TIMED-OUT'].includes(runStatus)) {
+          errors.push(`Run ${runId}: Status is ${runStatus} - waiting for completion`);
           continue;
         }
+        console.log(`Run ${runId} has status ${runStatus}, attempting to fetch dataset data...`);
 
         // Fetch ALL dataset items (Apify defaults to 1000, we need all)
         console.log(`Fetching dataset: ${datasetId}`);
