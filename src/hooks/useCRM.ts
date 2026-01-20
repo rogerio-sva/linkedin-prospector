@@ -105,32 +105,59 @@ export function useContactActivities(contactId: string | null) {
   });
 }
 
-export function useCRMContacts(baseId: string | null, stage?: string, assignedTo?: string) {
+export function useCRMContacts(baseId: string | null, stages: CRMStage[] = []) {
   return useQuery({
-    queryKey: ["crm-contacts", baseId, stage, assignedTo],
+    queryKey: ["crm-contacts", baseId, stages.map(s => s.name).join(",")],
     queryFn: async () => {
-      if (!baseId) return [];
+      if (!baseId || stages.length === 0) return [];
       
-      let query = supabase
-        .from("contacts")
-        .select("*")
-        .eq("base_id", baseId)
-        .order("last_activity_at", { ascending: false, nullsFirst: false });
+      const LIMIT_PER_STAGE = 100;
       
-      if (stage) {
-        query = query.eq("crm_stage", stage);
+      // Fetch contacts for each stage in parallel
+      const promises = stages.map(async (stage) => {
+        const { data, error } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("base_id", baseId)
+          .eq("crm_stage", stage.name)
+          .order("last_activity_at", { ascending: false, nullsFirst: false })
+          .limit(LIMIT_PER_STAGE);
+        
+        if (error) throw error;
+        return data || [];
+      });
+      
+      // Also fetch contacts with null crm_stage (treat as "Novo Lead")
+      const noStagePromise = async () => {
+        const { data, error } = await supabase
+          .from("contacts")
+          .select("*")
+          .eq("base_id", baseId)
+          .is("crm_stage", null)
+          .order("last_activity_at", { ascending: false, nullsFirst: false })
+          .limit(LIMIT_PER_STAGE);
+        
+        if (error) throw error;
+        return (data || []).map(c => ({ ...c, crm_stage: "Novo Lead" }));
+      };
+      
+      const results = await Promise.all([...promises, noStagePromise()]);
+      
+      // Combine and deduplicate (in case null stage overlaps with "Novo Lead")
+      const allContacts = results.flat();
+      const seen = new Set<string>();
+      const uniqueContacts: CRMContact[] = [];
+      
+      for (const contact of allContacts) {
+        if (!seen.has(contact.id)) {
+          seen.add(contact.id);
+          uniqueContacts.push(contact as CRMContact);
+        }
       }
       
-      if (assignedTo) {
-        query = query.eq("assigned_to", assignedTo);
-      }
-      
-      const { data, error } = await query.limit(500);
-      
-      if (error) throw error;
-      return data as CRMContact[];
+      return uniqueContacts;
     },
-    enabled: !!baseId,
+    enabled: !!baseId && stages.length > 0,
   });
 }
 

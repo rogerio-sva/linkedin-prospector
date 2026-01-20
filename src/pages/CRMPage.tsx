@@ -34,7 +34,7 @@ export default function CRMPage() {
   const { tags, contactTags } = useTags();
   const { data: stages = [], isLoading: stagesLoading } = useCRMStages();
   const { data: teamMembers = [] } = useTeamMembers();
-  const { data: contacts = [], isLoading: contactsLoading } = useCRMContacts(selectedBaseId || null);
+  const { data: contacts = [], isLoading: contactsLoading } = useCRMContacts(selectedBaseId || null, stages);
 
   const updateStage = useUpdateContactStage();
   const markLinkedIn = useMarkLinkedInContacted();
