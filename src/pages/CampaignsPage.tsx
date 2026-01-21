@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { CampaignMetricsPanel } from "@/components/CampaignMetricsPanel";
 import { GlobalCleanupStatus } from "@/components/GlobalCleanupStatus";
+import { BounceCleanupPanel } from "@/components/BounceCleanupPanel";
 import { cn } from "@/lib/utils";
 
 const CampaignsPage = () => {
@@ -310,8 +311,9 @@ const CampaignsPage = () => {
           </Card>
         </div>
 
-        {/* Global Cleanup Panel */}
-        <div className="mb-6">
+        {/* Bounce Cleanup Panel */}
+        <div className="mb-6 space-y-4">
+          <BounceCleanupPanel />
           <GlobalCleanupStatus />
         </div>
 

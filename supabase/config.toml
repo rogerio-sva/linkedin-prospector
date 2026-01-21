@@ -62,3 +62,6 @@ verify_jwt = false
 
 [functions.resurrect-run]
 verify_jwt = false
+
+[functions.execute-bounce-cleanup]
+verify_jwt = false
