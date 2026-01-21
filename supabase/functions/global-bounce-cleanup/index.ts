@@ -279,7 +279,22 @@ async function processCleanupChunk(
                 console.log(`Email ${email.resend_id} not found in Resend, marking as failed`);
                 await supabase
                   .from("email_sends")
-                  .update({ status: "failed" })
+                  .update({ status: "failed", error_message: "Email not found in Resend (404)" })
+                  .eq("id", email.id);
+                chunkSynced++;
+                lastProcessedId = email.id;
+                continue;
+              }
+              
+              // Handle 403 Forbidden - invalid or expired API key
+              if (response.status === 403) {
+                console.log(`API key unauthorized for ${email.resend_id} (domain: ${email.sender_domain}), marking as failed`);
+                await supabase
+                  .from("email_sends")
+                  .update({ 
+                    status: "failed", 
+                    error_message: `API key unauthorized for domain ${email.sender_domain} (403 Forbidden)` 
+                  })
                   .eq("id", email.id);
                 chunkSynced++;
                 lastProcessedId = email.id;
