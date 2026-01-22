@@ -52,6 +52,16 @@ interface EmailRequest {
   };
   testSubject?: string;
   testBody?: string;
+  testContact?: {
+    firstName?: string;
+    lastName?: string;
+    fullName?: string;
+    companyName?: string;
+    jobTitle?: string;
+    email?: string;
+    city?: string;
+    industry?: string;
+  };
 }
 
 interface Contact {
@@ -472,7 +482,8 @@ serve(async (req: Request): Promise<Response> => {
       batchMode = false,
       testRecipient, 
       testSubject, 
-      testBody 
+      testBody,
+      testContact
     }: EmailRequest = await req.json();
 
     console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, emailFormat, batchMode, contactIdsCount: contactIds?.length, testRecipient });
@@ -490,20 +501,46 @@ serve(async (req: Request): Promise<Response> => {
         
       console.log(`Sending test email to ${recipientEmail} (format: ${emailFormat})...`);
       
+      // Apply variable substitution if testContact is provided
+      let finalSubject = testSubject;
+      let finalBody = testBody;
+      
+      if (testContact) {
+        console.log(`[Test] Applying variable substitution with testContact:`, testContact);
+        const replacements: Record<string, string> = {
+          firstName: testContact.firstName || "",
+          lastName: testContact.lastName || "",
+          fullName: testContact.fullName || "",
+          companyName: testContact.companyName || "",
+          jobTitle: testContact.jobTitle || "",
+          email: testContact.email || "",
+          city: testContact.city || "",
+          industry: testContact.industry || "",
+        };
+        
+        Object.entries(replacements).forEach(([key, value]) => {
+          const regex = new RegExp(`\\{\\{${key}\\}\\}`, "g");
+          finalSubject = finalSubject.replace(regex, value);
+          finalBody = finalBody.replace(regex, value);
+        });
+        
+        console.log(`[Test] Final subject after substitution: ${finalSubject}`);
+      }
+      
       const emailPayload: any = {
         from: `${fromName} <${fromEmail}>`,
         to: [recipientEmail],
         reply_to: replyTo || fromEmail,
-        subject: testSubject,
+        subject: finalSubject,
       };
       
       if (emailFormat === "html") {
-        emailPayload.html = testBody
+        emailPayload.html = finalBody
           .split("\n")
           .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
           .join("");
       } else {
-        emailPayload.text = testBody;
+        emailPayload.text = finalBody;
       }
 
       // Get Resend client based on sender domain
