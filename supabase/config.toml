@@ -65,3 +65,6 @@ verify_jwt = false
 
 [functions.execute-bounce-cleanup]
 verify_jwt = false
+
+[functions.remove-contacts-by-email]
+verify_jwt = false
