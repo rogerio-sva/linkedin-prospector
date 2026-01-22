@@ -26,11 +26,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
     console.log("Starting bounce cleanup...");
 
     // Get all permanent bounces from suppressed_emails
+    // bounce_type can be 'permanent' (lowercase) or 'Permanent' (capitalized)
+    // reason can be 'bounce', 'hard_bounce', or 'complaint'
     const { data: suppressedEmails, error: suppressedError } = await supabase
       .from("suppressed_emails")
       .select("email, source_contact_id, created_at")
-      .or("reason.eq.bounced,reason.eq.complained")
-      .in("bounce_type", ["Permanent", "Complaint"]);
+      .or("bounce_type.ilike.permanent,reason.eq.complaint,reason.eq.hard_bounce");
 
     if (suppressedError) {
       throw new Error(`Failed to fetch suppressed emails: ${suppressedError.message}`);
