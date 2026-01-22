@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { FolderPlus, Send, Trash2, Users, Settings, Loader2, Shield, FileSpreadsheet } from "lucide-react";
+import { FolderPlus, Send, Trash2, Users, Settings, Loader2, Shield, FileSpreadsheet, UserMinus } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ContactsTable } from "@/components/ContactsTable";
@@ -14,6 +14,7 @@ import { TagFilterDropdown } from "@/components/TagFilterDropdown";
 import { ManageTagsDialog } from "@/components/ManageTagsDialog";
 import { EditContactDialog, ContactUpdates } from "@/components/EditContactDialog";
 import { ImportXLSDialog } from "@/components/ImportXLSDialog";
+import { RemoveContactsByCSVDialog } from "@/components/RemoveContactsByCSVDialog";
 import { useBases } from "@/hooks/useBases";
 import { useEmailTemplates } from "@/hooks/useEmailTemplates";
 import { useTags } from "@/hooks/useTags";
@@ -90,6 +91,7 @@ const BasesPage = () => {
   const [editContactDialogOpen, setEditContactDialogOpen] = useState(false);
   const [contactToEdit, setContactToEdit] = useState<LinkedInContact | null>(null);
   const [importXLSDialogOpen, setImportXLSDialogOpen] = useState(false);
+  const [removeByCSVDialogOpen, setRemoveByCSVDialogOpen] = useState(false);
 
   // Load contacts page with filters (without refreshContactTags to avoid loop)
   const loadContacts = useCallback(async (
@@ -383,6 +385,19 @@ const BasesPage = () => {
         }}
       />
 
+      {/* Remove by CSV Dialog */}
+      <RemoveContactsByCSVDialog
+        open={removeByCSVDialogOpen}
+        onOpenChange={setRemoveByCSVDialogOpen}
+        targetBaseId={selectedBaseId}
+        targetBaseName={selectedBase?.name}
+        onCompleted={async () => {
+          if (!selectedBaseId) return;
+          await loadContacts(selectedBaseId, currentPage, pageSize, contactFilters, bouncedContactIds);
+          await refreshBases();
+        }}
+      />
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -533,6 +548,15 @@ const BasesPage = () => {
                         Validar Emails
                       </Button>
                     )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setRemoveByCSVDialogOpen(true)}
+                      disabled={!selectedBaseId}
+                    >
+                      <UserMinus className="h-4 w-4 mr-2" />
+                      Limpar por CSV
+                    </Button>
                     {templates.length > 0 && totalCount > 0 && (
                       <Button
                         size="sm"
