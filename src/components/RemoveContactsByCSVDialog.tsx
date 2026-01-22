@@ -95,7 +95,7 @@ export function RemoveContactsByCSVDialog({
       setStep("review");
     } catch (e) {
       console.error(e);
-      toast.error("Erro ao ler arquivo. Verifique se é um CSV/XLSX válido.");
+      toast.error("Erro ao ler arquivo. Verifique se e um CSV/XLSX valido.");
     }
   };
 
@@ -130,7 +130,7 @@ export function RemoveContactsByCSVDialog({
       return;
     }
     if (computedEmails.length === 0) {
-      toast.error("Não encontrei nenhum e-mail válido no arquivo.");
+      toast.error("Nao encontrei nenhum e-mail valido no arquivo.");
       return;
     }
 
@@ -205,7 +205,9 @@ export function RemoveContactsByCSVDialog({
             Limpar base por CSV (inscritos)
           </DialogTitle>
           <DialogDescription>
-            {targetBaseName ? `Remove contatos da base “${targetBaseName}” comparando por e-mail.` : "Remove contatos de uma base comparando por e-mail."}
+            {targetBaseName
+              ? `Remove contatos da base "${targetBaseName}" comparando por e-mail.`
+              : "Remove contatos de uma base comparando por e-mail."}
           </DialogDescription>
         </DialogHeader>
 
@@ -267,7 +269,8 @@ export function RemoveContactsByCSVDialog({
                     </SelectContent>
                   </Select>
                   <p className="text-xs text-muted-foreground">
-                    Vamos comparar com <span className="font-medium">email</span> e <span className="font-medium">email pessoal</span> dos contatos.
+                    Vamos comparar com <span className="font-medium">email</span> e{" "}
+                    <span className="font-medium">email pessoal</span> dos contatos.
                   </p>
                 </div>
 
@@ -279,17 +282,17 @@ export function RemoveContactsByCSVDialog({
                       <span className="font-medium">{rows.length.toLocaleString("pt-BR")}</span>
                     </div>
                     <div className="flex items-center justify-between mt-1">
-                      <span className="text-muted-foreground">E-mails únicos (válidos)</span>
+                      <span className="text-muted-foreground">E-mails unicos (validos)</span>
                       <span className="font-medium">{computedEmails.length.toLocaleString("pt-BR")}</span>
                     </div>
                     {preview && (
                       <>
                         <div className="flex items-center justify-between mt-2">
-                          <span className="text-muted-foreground">Contatos que serão removidos</span>
+                          <span className="text-muted-foreground">Contatos que serao removidos</span>
                           <span className="font-medium">{preview.matchedContacts.toLocaleString("pt-BR")}</span>
                         </div>
                         <div className="flex items-center justify-between mt-1">
-                          <span className="text-muted-foreground">E-mails não encontrados</span>
+                          <span className="text-muted-foreground">E-mails nao encontrados</span>
                           <span className="font-medium">{preview.notFoundEmails.toLocaleString("pt-BR")}</span>
                         </div>
                       </>
@@ -300,7 +303,7 @@ export function RemoveContactsByCSVDialog({
 
               {preview?.sampleNotFoundEmails?.length ? (
                 <div className="space-y-2">
-                  <Label>Amostra de e-mails não encontrados</Label>
+                  <Label>Amostra de e-mails nao encontrados</Label>
                   <ScrollArea className="h-[110px] border rounded-lg">
                     <div className="p-3 text-xs text-muted-foreground space-y-1">
                       {preview.sampleNotFoundEmails.map((e) => (
