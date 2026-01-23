@@ -572,24 +572,41 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error("Batch mode requires contactIds");
     }
 
-    // Fetch template
-    const { data: template, error: templateError } = await supabase
-      .from("email_templates")
-      .select("*")
-      .eq("id", templateId)
-      .single();
+    // Fetch template with retry
+    let template: Template | null = null;
+    let templateRetries = 0;
+    const MAX_RETRIES = 3;
+    
+    while (templateRetries < MAX_RETRIES && !template) {
+      const { data: templateData, error: templateError } = await supabase
+        .from("email_templates")
+        .select("*")
+        .eq("id", templateId)
+        .single();
 
-    if (templateError || !template) {
-      console.error("Template error:", templateError);
-      throw new Error("Template não encontrado");
+      if (templateError) {
+        templateRetries++;
+        console.error(`Template fetch attempt ${templateRetries} failed:`, templateError);
+        if (templateRetries < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, 500 * templateRetries));
+        } else {
+          throw new Error(`Template não encontrado: ${templateError.message || templateError.code}`);
+        }
+      } else {
+        template = templateData;
+      }
+    }
+
+    if (!template) {
+      throw new Error("Template não encontrado após múltiplas tentativas");
     }
 
     console.log("Template loaded:", template.name);
 
     // Fetch contacts by IDs (batch mode)
     if (batchMode && contactIds && contactIds.length > 0) {
-      // Fetch contacts in sub-batches of 100 IDs to avoid URL length limits
-      const CONTACT_FETCH_BATCH_SIZE = 100;
+      // Fetch contacts in sub-batches of 50 IDs to reduce timeout risk
+      const CONTACT_FETCH_BATCH_SIZE = 50;
       let allFetchedContacts: Contact[] = [];
       
       console.log(`[BatchMode] Fetching ${contactIds.length} contacts in sub-batches of ${CONTACT_FETCH_BATCH_SIZE}`);
@@ -601,14 +618,27 @@ serve(async (req: Request): Promise<Response> => {
         
         console.log(`[BatchMode] Fetching sub-batch ${subBatchNum}/${totalSubBatches} (${batchIds.length} IDs)`);
         
-        const { data: batchContacts, error: batchError } = await supabase
-          .from("contacts")
-          .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
-          .in("id", batchIds);
+        // Retry logic for contact fetching
+        let fetchRetries = 0;
+        let batchContacts: Contact[] | null = null;
         
-        if (batchError) {
-          console.error(`[BatchMode] Error fetching sub-batch ${subBatchNum}:`, batchError);
-          throw new Error("Erro ao buscar contatos");
+        while (fetchRetries < MAX_RETRIES && !batchContacts) {
+          const { data, error: batchError } = await supabase
+            .from("contacts")
+            .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+            .in("id", batchIds);
+          
+          if (batchError) {
+            fetchRetries++;
+            console.error(`[BatchMode] Sub-batch ${subBatchNum} fetch attempt ${fetchRetries} failed:`, batchError);
+            if (fetchRetries < MAX_RETRIES) {
+              await new Promise(resolve => setTimeout(resolve, 500 * fetchRetries));
+            } else {
+              throw new Error(`Erro ao buscar contatos (sub-batch ${subBatchNum}): ${batchError.message || batchError.code}`);
+            }
+          } else {
+            batchContacts = data;
+          }
         }
         
         if (batchContacts) {
@@ -674,24 +704,37 @@ serve(async (req: Request): Promise<Response> => {
     // Legacy mode: fetch all contacts from base (for backwards compatibility)
     let allContacts: Contact[] = [];
     let offset = 0;
-    const pageSize = 1000;
+    const pageSize = 500; // Reduced to avoid timeouts
     
     while (true) {
-      let query = supabase
-        .from("contacts")
-        .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
-        .eq("base_id", baseId)
-        .range(offset, offset + pageSize - 1);
+      // Retry logic for legacy mode
+      let fetchRetries = 0;
+      let batch: Contact[] | null = null;
+      
+      while (fetchRetries < MAX_RETRIES && batch === null) {
+        let query = supabase
+          .from("contacts")
+          .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+          .eq("base_id", baseId)
+          .range(offset, offset + pageSize - 1);
 
-      if (contactIds && contactIds.length > 0) {
-        query = query.in("id", contactIds);
-      }
+        if (contactIds && contactIds.length > 0) {
+          query = query.in("id", contactIds);
+        }
 
-      const { data: batch, error: contactsError } = await query;
+        const { data, error: contactsError } = await query;
 
-      if (contactsError) {
-        console.error("Contacts error:", contactsError);
-        throw new Error("Erro ao buscar contatos");
+        if (contactsError) {
+          fetchRetries++;
+          console.error(`Contacts fetch attempt ${fetchRetries} (offset ${offset}) failed:`, contactsError);
+          if (fetchRetries < MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, 500 * fetchRetries));
+          } else {
+            throw new Error(`Erro ao buscar contatos: ${contactsError.message || contactsError.code}`);
+          }
+        } else {
+          batch = data;
+        }
       }
       
       if (!batch || batch.length === 0) break;
