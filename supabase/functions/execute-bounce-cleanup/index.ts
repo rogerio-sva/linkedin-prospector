@@ -13,6 +13,15 @@ interface CleanupResult {
   errors: string[];
 }
 
+interface ContactWithBounce {
+  id: string;
+  email: string | null;
+  personal_email: string | null;
+  linkedin_url: string | null;
+  base_id: string;
+  full_name: string | null;
+}
+
 Deno.serve(async (req: Request): Promise<Response> => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -23,22 +32,18 @@ Deno.serve(async (req: Request): Promise<Response> => {
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    console.log("Starting bounce cleanup...");
+    console.log("Starting bounce cleanup with case-insensitive matching...");
 
-    // Get all permanent bounces from suppressed_emails
-    // bounce_type can be 'permanent' (lowercase) or 'Permanent' (capitalized)
-    // reason can be 'bounce', 'hard_bounce', or 'complaint'
-    const { data: suppressedEmails, error: suppressedError } = await supabase
-      .from("suppressed_emails")
-      .select("email, source_contact_id, created_at")
-      .or("bounce_type.ilike.permanent,reason.eq.complaint,reason.eq.hard_bounce");
+    // Use the SQL function for case-insensitive email matching
+    const { data: allContactsWithBounce, error: rpcError } = await supabase
+      .rpc('find_contacts_with_bounced_emails') as { data: ContactWithBounce[] | null; error: any };
 
-    if (suppressedError) {
-      throw new Error(`Failed to fetch suppressed emails: ${suppressedError.message}`);
+    if (rpcError) {
+      throw new Error(`Failed to find bounced contacts: ${rpcError.message}`);
     }
 
-    if (!suppressedEmails || suppressedEmails.length === 0) {
-      console.log("No suppressed emails found");
+    if (!allContactsWithBounce || allContactsWithBounce.length === 0) {
+      console.log("No contacts with bounced emails found");
       return new Response(
         JSON.stringify({
           success: true,
@@ -51,49 +56,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
       );
     }
 
-    console.log(`Found ${suppressedEmails.length} suppressed emails`);
-
-    // Get unique emails that bounced (case-insensitive)
-    const bouncedEmails = [...new Set(suppressedEmails.map(s => s.email.toLowerCase()))];
-    console.log(`Unique bounced emails: ${bouncedEmails.length}`);
-
-    // Find contacts that still have these emails - process in batches to avoid URL length limits
-    const BATCH_SIZE = 50;
-    const allContactsWithBounce: any[] = [];
-
-    for (let i = 0; i < bouncedEmails.length; i += BATCH_SIZE) {
-      const batch = bouncedEmails.slice(i, i + BATCH_SIZE);
-      const emailList = batch.map(e => `"${e}"`).join(",");
-
-      const { data: batchContacts, error: batchError } = await supabase
-        .from("contacts")
-        .select("id, email, personal_email, linkedin_url, base_id, full_name")
-        .or(`email.in.(${emailList}),personal_email.in.(${emailList})`);
-
-      if (batchError) {
-        console.error(`Error fetching batch ${i}: ${batchError.message}`);
-        continue;
-      }
-
-      if (batchContacts) {
-        allContactsWithBounce.push(...batchContacts);
-      }
-    }
-
-    console.log(`Found ${allContactsWithBounce.length} contacts with bounced emails`);
-
-    if (allContactsWithBounce.length === 0) {
-      return new Response(
-        JSON.stringify({
-          success: true,
-          emailsCleared: 0,
-          contactsDeleted: 0,
-          crmReset: 0,
-          errors: [],
-        }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
+    console.log(`Found ${allContactsWithBounce.length} contacts with bounced emails (case-insensitive)`);
 
     // Separate contacts with and without LinkedIn
     const contactsWithLinkedIn = allContactsWithBounce.filter(c => c.linkedin_url);
@@ -110,11 +73,12 @@ Deno.serve(async (req: Request): Promise<Response> => {
       errors: [],
     };
 
+    const BATCH_SIZE = 50;
+
     // Process contacts with LinkedIn - clear email and reset stage
     if (contactsWithLinkedIn.length > 0) {
       const linkedInIds = contactsWithLinkedIn.map(c => c.id);
 
-      // Process in batches
       for (let i = 0; i < linkedInIds.length; i += BATCH_SIZE) {
         const batchIds = linkedInIds.slice(i, i + BATCH_SIZE);
 
@@ -145,7 +109,6 @@ Deno.serve(async (req: Request): Promise<Response> => {
         metadata: { action: "email_cleared", had_linkedin: true },
       }));
 
-      // Insert activities in batches
       for (let i = 0; i < activities.length; i += BATCH_SIZE) {
         const batchActivities = activities.slice(i, i + BATCH_SIZE);
         await supabase.from("contact_activities").insert(batchActivities);
