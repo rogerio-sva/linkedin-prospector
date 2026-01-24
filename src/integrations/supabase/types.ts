@@ -637,7 +637,17 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      find_contacts_with_bounced_emails: {
+        Args: never
+        Returns: {
+          base_id: string
+          email: string
+          full_name: string
+          id: string
+          linkedin_url: string
+          personal_email: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
