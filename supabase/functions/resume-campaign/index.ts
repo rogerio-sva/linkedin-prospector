@@ -13,6 +13,8 @@ const corsHeaders = {
 const BATCH_SIZE = 500; // Contacts per batch
 const SUB_BATCH_SIZE = 50; // For fetching contact details
 const RESEND_BATCH_SIZE = 100; // For Resend API
+const MAX_RETRIES = 3; // Max retries for network errors
+const RETRY_DELAY_MS = 1000; // Initial delay for exponential backoff
 const DELAY_BETWEEN_BATCHES_MS = 100;
 
 interface ResumeRequest {
@@ -35,7 +37,52 @@ function sanitizeName(name: string | null | undefined): string {
 // Capitalize first letter of each word
 function capitalizeWords(str: string | null | undefined): string {
   if (!str) return "";
-  return str.toLowerCase().replace(/(?:^|\s)\S/g, (a) => a.toUpperCase());
+  return str.toLowerCase().replace(/(?:^|\s)\S/g, (a: string) => a.toUpperCase());
+}
+
+// Check if error is retryable (network errors, 5xx, rate limits)
+function isRetryableError(error: any): boolean {
+  const message = error?.message?.toLowerCase() || "";
+  return (
+    message.includes("connection reset") ||
+    message.includes("connection refused") ||
+    message.includes("econnreset") ||
+    message.includes("econnrefused") ||
+    message.includes("etimedout") ||
+    message.includes("network") ||
+    message.includes("timeout") ||
+    message.includes("socket") ||
+    message.includes("fetch failed") ||
+    message.includes("rate") ||
+    message.includes("429") ||
+    message.includes("500") ||
+    message.includes("502") ||
+    message.includes("503") ||
+    message.includes("504")
+  );
+}
+
+// Retry wrapper with exponential backoff
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  context: string,
+  maxRetries: number = MAX_RETRIES
+): Promise<T> {
+  let lastError: any;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      lastError = error;
+      if (!isRetryableError(error) || attempt === maxRetries) {
+        throw error;
+      }
+      const delay = RETRY_DELAY_MS * Math.pow(2, attempt - 1); // Exponential backoff
+      console.log(`[resume-campaign] ${context} failed (attempt ${attempt}/${maxRetries}), retrying in ${delay}ms: ${error.message}`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }
 
 async function processResumeCampaign(params: ResumeRequest) {
@@ -253,8 +300,11 @@ async function processResumeCampaign(params: ResumeRequest) {
               continue;
             }
 
-            // Send via Resend (primary key only)
-            const response = await resend.batch.send(batchEmails);
+            // Send via Resend with retry for network errors
+            const response = await withRetry(
+              () => resend.batch.send(batchEmails),
+              `Resend batch send (${batchEmails.length} emails)`
+            );
 
             if (response.error) {
               throw new Error(response.error.message);
