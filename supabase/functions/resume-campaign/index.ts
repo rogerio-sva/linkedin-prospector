@@ -235,10 +235,7 @@ async function processResumeCampaign(params: ResumeRequest) {
           continue;
         }
 
-        // Send in batches via Resend
-        let currentResend = resend;
-        let useBackup = false;
-
+        // Send in batches via Resend (using only primary key)
         for (let i = 0; i < emailsToSend.length; i += RESEND_BATCH_SIZE) {
           const batchEmails = emailsToSend.slice(i, i + RESEND_BATCH_SIZE);
           const batchRecords = emailRecords.slice(i, i + RESEND_BATCH_SIZE);
@@ -256,23 +253,11 @@ async function processResumeCampaign(params: ResumeRequest) {
               continue;
             }
 
-            // Send via Resend
-            const response = await currentResend.batch.send(batchEmails);
+            // Send via Resend (primary key only)
+            const response = await resend.batch.send(batchEmails);
 
             if (response.error) {
-              // Try backup key if available
-              if (resend2 && !useBackup && response.error.message?.includes("rate")) {
-                console.log(`[resume-campaign] Switching to backup Resend key`);
-                currentResend = resend2;
-                useBackup = true;
-                // Retry with backup
-                const retryResponse = await currentResend.batch.send(batchEmails);
-                if (retryResponse.error) {
-                  throw new Error(retryResponse.error.message);
-                }
-              } else {
-                throw new Error(response.error.message);
-              }
+              throw new Error(response.error.message);
             }
 
             // Update records with Resend IDs
