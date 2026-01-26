@@ -1,49 +1,69 @@
 
 
-# Plano: Atualizar Template e Enviar Teste
+# Plano: Remover E-mails das Bases de Engenheiros
 
-## Corpo do E-mail Corrigido
+## E-mails a Remover (12 contatos)
 
-O usuário forneceu o texto correto:
+| # | E-mail |
+|---|--------|
+| 1 | lucia.alves.adv@gmail.com |
+| 2 | delma.avelino@gmail.com |
+| 3 | sjesusjj@gmail.com |
+| 4 | walterquaglio@gmail.com |
+| 5 | ronaldo.ligeiro@fda.com.br |
+| 6 | warleyjsoaressilva@gmail.com |
+| 7 | francielle.feitosa.dias.santos@gmail.com |
+| 8 | silabas270974@gmail.com |
+| 9 | eng1@emsamed.com.br |
+| 10 | mariajose_sf@yahoo.com |
+| 11 | luizcattetecontador@gmail.com |
+| 12 | maria_do_socorro.fono@yahoo.com.br |
 
-```
-{{firstName}}, é hoje.
+## Bases Alvo
 
-A Semana Vivendo de Perícias começa daqui a pouco e essa é a última chance de entrar.
-
-Se você é engenheiro e quer entender como atuar como perito judicial, usar sua experiência técnica pra gerar uma renda extra (ou até mudar de carreira), essa semana foi feita pra você.
-
-São aulas práticas, sem enrolação.
-
-Se quiser participar, se inscreve aqui agora: https://link.academiadoperito.com.br/oi
-
-Nos vemos lá, 
-Prof. Fernando Sarian
-```
+| Base | ID |
+|------|-----|
+| BASE CREA ATUAL | `238bb2e3-fabc-464f-9db4-8e4ee7648e17` |
+| Engenheiros base não alunos! | `cab31c73-5cf6-452c-8fcc-0045fb1a26a9` |
 
 ## Etapas
 
-### 1. Atualizar o Template no Banco
+### 1. Preview (Dry Run) - Opcional
+Primeiro, fazer um dry run para ver quantos contatos serão encontrados em cada base.
 
-Atualizar o registro do template `Último Convite SVP 2026` (ID: `960e4fc3-db34-4034-a684-e9018c605249`) com o novo corpo.
+### 2. Executar Remoção
+Chamar a Edge Function `remove-contacts-by-email` duas vezes (uma para cada base):
 
-### 2. Enviar E-mail de Teste
+**Chamada 1 - BASE CREA ATUAL:**
+```json
+{
+  "targetBaseId": "238bb2e3-fabc-464f-9db4-8e4ee7648e17",
+  "emails": ["lucia.alves.adv@gmail.com", "delma.avelino@gmail.com", ...],
+  "dryRun": false,
+  "alsoMatchPersonalEmail": true
+}
+```
 
-Chamar a Edge Function `send-campaign-emails` com:
+**Chamada 2 - Engenheiros base não alunos!:**
+```json
+{
+  "targetBaseId": "cab31c73-5cf6-452c-8fcc-0045fb1a26a9",
+  "emails": ["lucia.alves.adv@gmail.com", "delma.avelino@gmail.com", ...],
+  "dryRun": false,
+  "alsoMatchPersonalEmail": true
+}
+```
 
-| Parâmetro | Valor |
-|-----------|-------|
-| `templateId` | `960e4fc3-db34-4034-a684-e9018c605249` |
-| `fromEmail` | `contato@academiadoperito.com` |
-| `fromName` | `Prof. Fernando Sarian` |
-| `replyTo` | `contato@academiadoperito.com.br` |
-| `emailFormat` | `text` |
-| `testRecipient` | `{ email: "rogerio.sva@gmail.com", name: "Rogério" }` |
+## O que a função faz
+
+1. Normaliza os e-mails (lowercase, trim)
+2. Busca contatos que tenham esses e-mails (corporativo OU pessoal)
+3. Remove as tags associadas (`contact_tags`)
+4. Deleta os contatos da base
 
 ## Resultado Esperado
 
-E-mail recebido em `rogerio.sva@gmail.com`:
-- **De**: Prof. Fernando Sarian <contato@academiadoperito.com>
-- **Assunto**: Rogério, começa HOJE
-- **Corpo**: Texto personalizado iniciando com "Rogério, é hoje."
+- Contatos com esses e-mails serão removidos de ambas as bases
+- A função retorna quantos foram encontrados e quantos foram deletados
+- E-mails não encontrados são listados para referência
 
