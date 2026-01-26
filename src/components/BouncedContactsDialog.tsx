@@ -99,11 +99,11 @@ export const BouncedContactsDialog = ({
   const linkedInContacts = bouncedContacts.filter(c => c.linkedin_url && c.linkedin_url.trim() !== '');
   const externalContacts = bouncedContacts.filter(c => !c.linkedin_url || c.linkedin_url.trim() === '');
 
-  // Reset selections when data changes
+  // Reset selections when data changes - using length to avoid infinite loop
   useEffect(() => {
     setSelectedLinkedIn(new Set());
     setSelectedExternal(new Set());
-  }, [bouncedContacts]);
+  }, [bouncedContacts.length]);
 
   // Clean emails mutation (for LinkedIn contacts)
   const cleanEmailsMutation = useMutation({
