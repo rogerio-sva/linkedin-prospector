@@ -85,15 +85,28 @@ async function withRetry<T>(
   throw lastError;
 }
 
+// Domain to API Key mapping
+function getResendApiKeyForDomain(fromEmail: string): string {
+  const domain = fromEmail.split('@')[1]?.toLowerCase();
+  const DOMAIN_API_KEY_MAP: Record<string, string | undefined> = {
+    'dominions.com.br': Deno.env.get("RESEND_API_KEY"),
+    'academiadoperito.com': Deno.env.get("RESEND_API_KEY"),
+    'fatopericias.com.br': Deno.env.get("RESEND_API_KEY_2"),
+  };
+  const apiKey = DOMAIN_API_KEY_MAP[domain];
+  if (apiKey) {
+    console.log(`[resume-campaign] Using API key for domain: ${domain}`);
+    return apiKey;
+  }
+  console.log(`[resume-campaign] Domain ${domain} not mapped, using default`);
+  return Deno.env.get("RESEND_API_KEY") || '';
+}
+
 async function processResumeCampaign(params: ResumeRequest) {
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
   const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const resendApiKey = Deno.env.get("RESEND_API_KEY")!;
-  const resendApiKey2 = Deno.env.get("RESEND_API_KEY_2");
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const resend = new Resend(resendApiKey);
-  const resend2 = resendApiKey2 ? new Resend(resendApiKey2) : null;
 
   const { 
     campaignId, 
@@ -105,6 +118,10 @@ async function processResumeCampaign(params: ResumeRequest) {
     emailType = "both",
     emailFormat = "text"
   } = params;
+
+  // Create Resend client based on sender domain
+  const resendApiKey = getResendApiKeyForDomain(fromEmail);
+  const resend = new Resend(resendApiKey);
 
   console.log(`[resume-campaign] Starting background process for campaign ${campaignId}`);
 
