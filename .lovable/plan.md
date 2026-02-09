@@ -1,32 +1,47 @@
 
+# Limpeza Completa de Bounces e Proteção Anti-Reenvio
 
-## Criar template "Follow-up 3 Advogados" com acentuacao correta
+## Resumo da Situacao
 
-### Template final
+- **292 contatos** ainda possuem emails que estao na lista de supressao (todos com LinkedIn)
+- **38.502 envios** falharam por "API key invalida" — nao sairam de fato, mas os destinatarios nao devem ser reenviados sem validacao
+- A lista de supressao ja tem **10.916 emails** registrados
 
-**Assunto:** sobre o email anterior, {{firstName}}
+## Plano em 2 Etapas
 
-**Corpo:**
-```
-Oi {{firstName}}, tudo bem?
+### Etapa 1: Limpar os 292 contatos pendentes
 
-Te enviei um email recentemente me apresentando e não sei se chegou a ver.
+Executar o `execute-bounce-cleanup` que ja existe. Ele vai:
+- Encontrar os 292 contatos via a funcao SQL `find_contacts_with_bounced_emails`
+- Como todos tem LinkedIn: limpar os campos `email` e `personal_email`, resetar `crm_stage` para "Novo Lead"
+- Registrar atividade no historico de cada contato
 
-Sou o Thiago Vieira, da Fato Perícias. A gente trabalha com advogados que precisam de laudos técnicos sólidos pra sustentar teses no contencioso.
+Nenhuma alteracao de codigo necessaria — basta chamar a funcao existente.
 
-Atendemos bastante nas áreas de engenharia civil, segurança do trabalho, automotiva, avaliações, incêndio, análise de imagens e grafotécnica. Nosso foco é entregar laudos estruturados pro juiz entender, com metodologia clara e conclusões defensáveis.
+### Etapa 2: Implementar protecao pre-envio anti-failed/bounce
 
-Se fizer sentido pra você, posso te enviar um laudo modelo pra avaliar a qualidade do nosso trabalho. Sem compromisso nenhum.
+Modificar a edge function `send-campaign-emails` para bloquear automaticamente qualquer destinatario que tenha historico de:
+- `status = 'bounced'` (qualquer tipo)
+- `status = 'failed'` (exceto falhas de rate limit, que sao transitorias)
 
-Fico à disposição.
+Isso impede que os 38.502 enderecos que falharam por API key sejam incluidos em campanhas futuras.
 
-Abraço,
-Thiago Vieira
-Fato Perícias
-(21) 3411-8738 | (21) 97110-3042
-```
+---
 
-### Etapas tecnicas
-1. Inserir novo registro em `email_templates` com nome "Follow-up 3 Advogados", subject e body acima (com acentos), variables `["firstName"]`
-2. Preparar campanha para a base "Advogados Brasil" (ID: `de04814e-8ce0-4572-8bca-31df84eb8774`) usando o componente SendCampaignDialog
+## Detalhes Tecnicos
 
+### Etapa 1 — Execucao manual do cleanup
+
+Chamar a edge function `execute-bounce-cleanup` via curl. Sem alteracoes de codigo.
+
+### Etapa 2 — Alteracao na `send-campaign-emails`
+
+No trecho onde a lista de destinatarios e montada (apos filtrar suprimidos e invalidados), adicionar uma consulta a `email_sends` para buscar emails distintos com `status IN ('bounced', 'failed')` e `error_message NOT LIKE '%rate limit%'`. Esses emails serao removidos da lista de envio.
+
+Arquivo modificado:
+- `supabase/functions/send-campaign-emails/index.ts`
+
+Tambem atualizar o `SendCampaignDialog.tsx` para exibir ao usuario a contagem de emails bloqueados por historico de falha, junto com as outras metricas ja exibidas (suprimidos, invalidados).
+
+Arquivos modificados:
+- `src/components/SendCampaignDialog.tsx`
