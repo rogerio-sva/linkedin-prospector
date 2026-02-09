@@ -572,23 +572,24 @@ serve(async (req: Request): Promise<Response> => {
       throw new Error("Batch mode requires contactIds");
     }
 
-    // Fetch template with retry
+    // Fetch template with retry (exponential backoff for DB under load)
     let template: Template | null = null;
     let templateRetries = 0;
-    const MAX_RETRIES = 3;
+    const MAX_RETRIES = 5;
     
     while (templateRetries < MAX_RETRIES && !template) {
       const { data: templateData, error: templateError } = await supabase
         .from("email_templates")
-        .select("*")
+        .select("id, name, subject, body")
         .eq("id", templateId)
         .single();
 
       if (templateError) {
         templateRetries++;
-        console.error(`Template fetch attempt ${templateRetries} failed:`, templateError);
+        const delay = Math.min(1000 * Math.pow(2, templateRetries - 1), 8000);
+        console.error(`Template fetch attempt ${templateRetries}/${MAX_RETRIES} failed (retry in ${delay}ms):`, templateError);
         if (templateRetries < MAX_RETRIES) {
-          await new Promise(resolve => setTimeout(resolve, 500 * templateRetries));
+          await new Promise(resolve => setTimeout(resolve, delay));
         } else {
           throw new Error(`Template não encontrado: ${templateError.message || templateError.code}`);
         }
