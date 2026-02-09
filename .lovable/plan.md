@@ -1,32 +1,32 @@
 
-## Plano: Mover 3 Contatos para "Em Negociação"
 
-### Objetivo
-Atualizar o estágio CRM de Alice Ruffier, Vinicius Rossi e Cassiano Beck de "Email Enviado" para "Em Negociação", registrando essa mudança no histórico de atividades.
+## Mover 29 contatos para "Fechado Perdido"
 
-### Contatos Identificados
-| Nome | Email | ID | Estágio Atual |
-|------|-------|----|----|
-| Alice Ruffier | alice@vbassociados.com.br | 8b3dfa23-0049-4727-9f76-ed6924452c46 | Email Enviado |
-| Cassiano Beck | cassiano.beck@letsara.com | 3ab8dd55-a1a1-46d4-a067-0e840010b527 | Email Enviado |
-| Vinicius Rossi | vinicius@arrudacostaebertelli.com.br | 7d273738-d91c-4095-a8ad-8395446ac5bd | Email Enviado |
+### Resumo
+Dos 45 emails fornecidos:
+- **29 contatos** serao movidos de "Email Enviado" para "Fechado Perdido"
+- **8 contatos** ja estao em "Fechado Perdido" (nenhuma acao necessaria)
+- **8 emails** nao foram encontrados na base
 
-### Execução Técnica
-Cada contato será atualizado via Supabase usando 3 operações paralelas:
+### Emails nao encontrados
+| Email |
+|-------|
+| tatianankotaka@gmail.com |
+| viviane.abreu@yfnadvogados.com.br |
+| rafaaleixo@hotmail.com |
+| cristina.yoshida@aliare.com |
+| dmbrazoloto@yahoo.com.br |
+| gneves.geraldo@gmail.com |
+| juridico01@bhayemota.com.br |
 
-1. **Atualizar campo `crm_stage`** na tabela `contacts`:
-   - Campo: `crm_stage = "Em Negociação"`
-   - Campo: `last_activity_at = [timestamp atual]`
-   - Onde: `id = [contact_id]`
+### Ja em "Fechado Perdido" (sem acao)
+Ana Almeida, Clara Ulrichsen, Daniela Souza, Felipe Magalhaes, Juliana Lorigiola, Luana Baptistella, Lucas Picceli, Luisa Claussen
 
-2. **Registrar atividade** na tabela `contact_activities`:
-   - `activity_type = "stage_change"`
-   - `description = "Movido para estágio: Em Negociação"`
-   - Timestamp automático: `created_at`
+### Contatos a mover (29)
+Aline Fujishima, Andre Ferreira, Antonio Marianno, Bernardo Abreu, Bianca Muniz, Caio Saturno, Carlos Silva, Carolina Rodrigues, Daniel Souza, Danilo Muniz, Debora Milano, Fabio Abrantes, Fernanda Penteado, Francisco Clares, Gabriela Maria, Giuliana Nascimento, Isabele Friolani, Jayme Figueiredo, Karine Fernandes, Leandro Saint'clair, Lucio Pinto, Marcela Lima, Marcus Souza, Mariane Milchereit, Patricia Reis, Rebeka Assis, Simone Pacini, Tatiany Fogaca, Vinicius Sant'anna, Wellington Ciesielski
 
-3. **Invalidar cache** de queries relacionadas para refletir os dados atualizados na UI
+### Execucao Tecnica
+1. **UPDATE contacts** -- definir `crm_stage = 'Fechado Perdido'` e `last_activity_at = now()` para os 29 IDs
+2. **INSERT contact_activities** -- registrar 29 atividades com `activity_type = 'stage_change'` e `description = 'Movido para estagio: Fechado Perdido'`
+3. **Invalidar cache** das queries do CRM para refletir na UI
 
-### Resultado Esperado
-- Os 3 contatos aparecerão na coluna "Em Negociação" do Kanban
-- O timeline de cada contato mostrará a atividade "Movido para estágio: Em Negociação"
-- A coluna "Email Enviado" terá 3 contatos a menos
