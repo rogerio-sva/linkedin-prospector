@@ -173,6 +173,32 @@ async function sendEmailsWithBatchAPI(
       .map((v: { email: string }) => v.email.toLowerCase())
   );
   console.log(`[BatchAPI] Found ${undeliverableSet.size} undeliverable emails to skip`);
+
+  // Fetch emails with historical bounced/failed status to block re-sending
+  // Query in batches to avoid URL length limits
+  const HISTORY_BATCH_SIZE = 100;
+  const historicalFailSet = new Set<string>();
+  
+  for (let hIdx = 0; hIdx < emailsToCheck.length; hIdx += HISTORY_BATCH_SIZE) {
+    const histBatch = emailsToCheck.slice(hIdx, hIdx + HISTORY_BATCH_SIZE);
+    const { data: failedHistory } = await supabase
+      .from("email_sends")
+      .select("recipient_email, status, error_message")
+      .in("recipient_email", histBatch)
+      .in("status", ["bounced", "failed"]);
+    
+    if (failedHistory) {
+      for (const record of failedHistory) {
+        // Skip transient rate limit errors - those are retryable
+        if (record.status === "failed" && record.error_message && 
+            record.error_message.toLowerCase().includes("rate limit")) {
+          continue;
+        }
+        historicalFailSet.add(record.recipient_email.toLowerCase());
+      }
+    }
+  }
+  console.log(`[BatchAPI] Found ${historicalFailSet.size} emails with historical bounce/fail to block`);
   
   // Filter out suppressed and undeliverable contacts
   let filteredContacts = contactsWithEmail.filter(c => {
@@ -198,13 +224,27 @@ async function sendEmailsWithBatchAPI(
   });
   
   const invalidEmailsCount = beforeUndeliverableFilter - filteredContacts.length;
-  console.log(`[BatchAPI] Filtered ${suppressedCount} suppressed, ${invalidEmailsCount} undeliverable, ${filteredContacts.length} remaining`);
+
+  // Filter out emails with historical bounce/fail
+  const beforeHistoricalFilter = filteredContacts.length;
+  filteredContacts = filteredContacts.filter(c => {
+    const targetEmail = emailType === "personal" 
+      ? c.personal_email 
+      : emailType === "corporate" 
+        ? c.email 
+        : (c.personal_email || c.email);
+    return targetEmail && !historicalFailSet.has(targetEmail.toLowerCase());
+  });
+  
+  const historicalFailCount = beforeHistoricalFilter - filteredContacts.length;
+  console.log(`[BatchAPI] Filtered ${suppressedCount} suppressed, ${invalidEmailsCount} undeliverable, ${historicalFailCount} historical fails, ${filteredContacts.length} remaining`);
   
   const results = {
     sent: 0,
     failed: 0,
     suppressed: suppressedCount,
     invalidEmails: invalidEmailsCount,
+    historicalFails: historicalFailCount,
     errors: [] as string[],
   };
 
@@ -693,6 +733,7 @@ serve(async (req: Request): Promise<Response> => {
           failed: results.failed,
           suppressed: results.suppressed,
           invalidEmails: results.invalidEmails,
+          historicalFails: results.historicalFails,
           errors: results.errors,
         }),
         {

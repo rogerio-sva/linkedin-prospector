@@ -44,6 +44,7 @@ interface BatchProgress {
   failedEmails: number;
   suppressedEmails: number;
   invalidEmails: number;
+  historicalFails: number;
   status: "idle" | "sending" | "paused" | "completed" | "error";
   currentBatchStatus: string;
   errors: string[];
@@ -92,6 +93,7 @@ export const SendCampaignDialog = ({
     failedEmails: 0,
     suppressedEmails: 0,
     invalidEmails: 0,
+    historicalFails: 0,
     status: "idle",
     currentBatchStatus: "",
     errors: [],
@@ -226,6 +228,7 @@ export const SendCampaignDialog = ({
         failedEmails: 0,
         suppressedEmails: 0,
         invalidEmails: 0,
+        historicalFails: 0,
         status: "idle",
         currentBatchStatus: "",
         errors: [],
@@ -334,6 +337,7 @@ export const SendCampaignDialog = ({
       failedEmails: 0,
       suppressedEmails: 0,
       invalidEmails: 0,
+      historicalFails: 0,
       status: "sending",
       currentBatchStatus: "Iniciando campanha...",
       errors: [],
@@ -368,6 +372,7 @@ export const SendCampaignDialog = ({
       let totalFailed = 0;
       let totalSuppressed = 0;
       let totalInvalid = 0;
+      let totalHistoricalFails = 0;
       const allErrors: string[] = [];
 
       for (let i = 0; i < batches.length; i++) {
@@ -418,6 +423,7 @@ export const SendCampaignDialog = ({
           totalFailed += data.failed || 0;
           totalSuppressed += data.suppressed || 0;
           totalInvalid += data.invalidEmails || 0;
+          totalHistoricalFails += data.historicalFails || 0;
           
           if (data.errors && data.errors.length > 0) {
             allErrors.push(...data.errors);
@@ -429,6 +435,7 @@ export const SendCampaignDialog = ({
             failedEmails: totalFailed,
             suppressedEmails: totalSuppressed,
             invalidEmails: totalInvalid,
+            historicalFails: totalHistoricalFails,
             errors: allErrors,
           }));
 
@@ -460,10 +467,11 @@ export const SendCampaignDialog = ({
 
       const suppressedMsg = totalSuppressed > 0 ? `, ${totalSuppressed} suprimidos` : "";
       const invalidMsg = totalInvalid > 0 ? `, ${totalInvalid} inválidos` : "";
+      const historicalMsg = totalHistoricalFails > 0 ? `, ${totalHistoricalFails} bloqueados (histórico)` : "";
       setBatchProgress(prev => ({
         ...prev,
         status: "completed",
-        currentBatchStatus: `Concluído! ${totalSent} enviados, ${totalFailed} falhas${suppressedMsg}${invalidMsg}.`,
+        currentBatchStatus: `Concluído! ${totalSent} enviados, ${totalFailed} falhas${suppressedMsg}${invalidMsg}${historicalMsg}.`,
       }));
 
       toast.success(`Campanha concluída! ${totalSent} emails enviados.`);
@@ -566,6 +574,12 @@ export const SendCampaignDialog = ({
                 {batchProgress.invalidEmails > 0 && (
                   <p className="text-xs text-orange-600">
                     {batchProgress.invalidEmails} emails inválidos bloqueados (validação)
+                  </p>
+                )}
+
+                {batchProgress.historicalFails > 0 && (
+                  <p className="text-xs text-red-500">
+                    {batchProgress.historicalFails} emails bloqueados por histórico de bounce/falha
                   </p>
                 )}
 
