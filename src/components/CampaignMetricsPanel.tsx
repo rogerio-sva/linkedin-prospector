@@ -4,10 +4,28 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Progress } from "@/components/ui/progress";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Mail, CheckCircle, XCircle, Eye, MousePointerClick, 
   AlertTriangle, TrendingUp, Clock, Send, Users, Trash2,
-  RefreshCcw, Loader2
+  RefreshCcw, Loader2, Play
 } from "lucide-react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
@@ -81,6 +99,72 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [bouncedDialogOpen, setBouncedDialogOpen] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  
+  // Resume pending state
+  const [resumeDialogOpen, setResumeDialogOpen] = useState(false);
+  const [resumeFromEmail, setResumeFromEmail] = useState("");
+  const [resumeFromName, setResumeFromName] = useState("");
+  const [resumeReplyTo, setResumeReplyTo] = useState("");
+  const [resumeEmailFormat, setResumeEmailFormat] = useState<"text" | "html">("text");
+  const [resumeProgress, setResumeProgress] = useState<{
+    status: "idle" | "sending" | "completed" | "error";
+    currentBatch: number;
+    totalBatches: number;
+    sent: number;
+    failed: number;
+    skipped: number;
+    total: number;
+    message: string;
+  }>({ status: "idle", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: 0, message: "" });
+
+  // Resume pending emails handler
+  const handleResumePending = async () => {
+    if (!resumeFromEmail.trim() || !resumeFromName.trim()) {
+      toast.error("Preencha email e nome do remetente");
+      return;
+    }
+
+    setResumeProgress({ status: "sending", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: pending, message: "Iniciando retomada dos pendentes..." });
+
+    try {
+      // The edge function handles all pending records in one call, processing internally in sub-batches
+      const { data, error } = await supabase.functions.invoke("send-campaign-emails", {
+        body: {
+          campaignId: campaign.id,
+          templateId: campaign.email_templates ? undefined : undefined, // not needed for resume
+          resumePending: true,
+          fromEmail: resumeFromEmail.trim(),
+          fromName: resumeFromName.trim(),
+          replyTo: resumeReplyTo.trim() || undefined,
+          emailFormat: resumeEmailFormat,
+        },
+      });
+
+      if (error) throw new Error(error.message || "Erro na requisição");
+      if (!data.success) throw new Error(data.error || "Erro desconhecido");
+
+      setResumeProgress({
+        status: "completed",
+        currentBatch: 0,
+        totalBatches: 0,
+        sent: data.sent || 0,
+        failed: data.failed || 0,
+        skipped: data.skipped || 0,
+        total: data.total || 0,
+        message: `Concluído! ${data.sent} enviados, ${data.failed} falhas, ${data.skipped} bloqueados.`,
+      });
+
+      toast.success(`Retomada concluída! ${data.sent} emails enviados.`);
+    } catch (error: any) {
+      console.error("Resume pending error:", error);
+      setResumeProgress(prev => ({
+        ...prev,
+        status: "error",
+        message: error.message || "Erro ao retomar pendentes",
+      }));
+      toast.error(error.message || "Erro ao retomar pendentes");
+    }
+  };
 
   // Sync email status from Resend API
   const handleSyncStatus = async () => {
@@ -201,6 +285,17 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {pending > 0 && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => setResumeDialogOpen(true)}
+                className="gap-1"
+              >
+                <Play className="h-4 w-4" />
+                Retomar {pending.toLocaleString()} Pendentes
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"
@@ -514,6 +609,110 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
         campaignId={campaign.id}
         campaignName={campaign.name}
       />
+
+      {/* Resume Pending Dialog */}
+      <Dialog open={resumeDialogOpen} onOpenChange={(open) => {
+        if (resumeProgress.status !== "sending") setResumeDialogOpen(open);
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Retomar Pendentes</DialogTitle>
+            <DialogDescription>
+              {pending.toLocaleString()} emails pendentes serão processados. Emails com histórico de bounce/falha serão automaticamente bloqueados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {resumeProgress.status === "idle" ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label>Email do Remetente *</Label>
+                <Input
+                  placeholder="voce@dominio.com"
+                  value={resumeFromEmail}
+                  onChange={(e) => setResumeFromEmail(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Nome do Remetente *</Label>
+                <Input
+                  placeholder="Seu Nome"
+                  value={resumeFromName}
+                  onChange={(e) => setResumeFromName(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Reply-To (opcional)</Label>
+                <Input
+                  placeholder="resposta@dominio.com"
+                  value={resumeReplyTo}
+                  onChange={(e) => setResumeReplyTo(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Formato do Email</Label>
+                <Select value={resumeEmailFormat} onValueChange={(v: "text" | "html") => setResumeEmailFormat(v)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="text">Texto Puro (melhor entrega)</SelectItem>
+                    <SelectItem value="html">HTML</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setResumeDialogOpen(false)}>Cancelar</Button>
+                <Button onClick={handleResumePending} disabled={!resumeFromEmail.trim() || !resumeFromName.trim()}>
+                  <Play className="h-4 w-4 mr-1" />
+                  Retomar Envio
+                </Button>
+              </DialogFooter>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">{resumeProgress.message}</span>
+                </div>
+                {resumeProgress.status === "sending" && (
+                  <Progress value={0} className="h-2" />
+                )}
+              </div>
+              <div className="grid grid-cols-3 gap-3 text-center">
+                <Card className="p-3">
+                  <p className="text-lg font-semibold text-green-600">{resumeProgress.sent}</p>
+                  <p className="text-xs text-muted-foreground">Enviados</p>
+                </Card>
+                <Card className="p-3">
+                  <p className="text-lg font-semibold text-red-600">{resumeProgress.failed}</p>
+                  <p className="text-xs text-muted-foreground">Falhas</p>
+                </Card>
+                <Card className="p-3">
+                  <p className="text-lg font-semibold text-amber-600">{resumeProgress.skipped}</p>
+                  <p className="text-xs text-muted-foreground">Bloqueados</p>
+                </Card>
+              </div>
+              {(resumeProgress.status === "completed" || resumeProgress.status === "error") && (
+                <DialogFooter>
+                  <Button onClick={() => {
+                    setResumeDialogOpen(false);
+                    setResumeProgress({ status: "idle", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: 0, message: "" });
+                    window.location.reload();
+                  }}>
+                    Fechar
+                  </Button>
+                </DialogFooter>
+              )}
+              {resumeProgress.status === "sending" && (
+                <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Processando...
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
