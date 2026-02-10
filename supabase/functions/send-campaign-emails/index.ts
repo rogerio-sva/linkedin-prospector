@@ -605,37 +605,45 @@ serve(async (req: Request): Promise<Response> => {
     }
 
     // ============ RESUME PENDING MODE ============
-    // Fetches existing pending records from email_sends and re-sends them (UPDATE instead of INSERT)
+    // Accepts pendingIds (batch of email_sends IDs to process) — frontend sends in batches of 500
     if (resumePending && campaignId) {
-      console.log(`[ResumePending] Starting resume for campaign ${campaignId}`);
+      console.log(`[ResumePending] Starting resume for campaign ${campaignId}, pendingIds: ${contactIds?.length || 'all'}`);
       
-      // Fetch all pending records for this campaign
-      const PENDING_FETCH_SIZE = 500;
-      let allPendingRecords: any[] = [];
-      let pendingOffset = 0;
+      // Fetch the specific pending records by ID (sent by frontend in batches)
+      let pendingRecords: any[] = [];
       
-      while (true) {
-        const { data: pendingBatch, error: pendingError } = await supabase
+      if (contactIds && contactIds.length > 0) {
+        // Frontend sent specific email_sends IDs to process
+        for (let i = 0; i < contactIds.length; i += 100) {
+          const idBatch = contactIds.slice(i, i + 100);
+          const { data, error } = await supabase
+            .from("email_sends")
+            .select("id, contact_id, recipient_email, recipient_name, subject, body")
+            .in("id", idBatch)
+            .eq("status", "pending");
+          
+          if (error) {
+            console.error(`[ResumePending] Error fetching pending records:`, error);
+            throw new Error(`Erro ao buscar pendentes: ${error.message}`);
+          }
+          if (data) pendingRecords = [...pendingRecords, ...data];
+        }
+      } else {
+        // Fallback: fetch all pending (for backwards compat) - limited to 500
+        const { data, error } = await supabase
           .from("email_sends")
           .select("id, contact_id, recipient_email, recipient_name, subject, body")
           .eq("campaign_id", campaignId)
           .eq("status", "pending")
-          .range(pendingOffset, pendingOffset + PENDING_FETCH_SIZE - 1);
+          .limit(500);
         
-        if (pendingError) {
-          console.error(`[ResumePending] Error fetching pending records:`, pendingError);
-          throw new Error(`Erro ao buscar pendentes: ${pendingError.message}`);
-        }
-        
-        if (!pendingBatch || pendingBatch.length === 0) break;
-        allPendingRecords = [...allPendingRecords, ...pendingBatch];
-        if (pendingBatch.length < PENDING_FETCH_SIZE) break;
-        pendingOffset += PENDING_FETCH_SIZE;
+        if (error) throw new Error(`Erro ao buscar pendentes: ${error.message}`);
+        pendingRecords = data || [];
       }
       
-      console.log(`[ResumePending] Found ${allPendingRecords.length} pending records`);
+      console.log(`[ResumePending] Processing ${pendingRecords.length} pending records`);
       
-      if (allPendingRecords.length === 0) {
+      if (pendingRecords.length === 0) {
         return new Response(
           JSON.stringify({ success: true, sent: 0, failed: 0, skipped: 0, total: 0 }),
           { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
@@ -643,7 +651,7 @@ serve(async (req: Request): Promise<Response> => {
       }
       
       // Get all recipient emails for protection checks
-      const pendingEmails = allPendingRecords.map(r => r.recipient_email).filter(Boolean);
+      const pendingEmails = pendingRecords.map(r => r.recipient_email).filter(Boolean);
       
       // Fetch suppressed emails
       const suppressedSet = new Set<string>();
@@ -678,7 +686,7 @@ serve(async (req: Request): Promise<Response> => {
           .select("recipient_email, status, error_message")
           .in("recipient_email", batch)
           .in("status", ["bounced", "failed"])
-          .neq("status", "pending"); // exclude current pending records
+          .neq("status", "pending");
         
         if (failedHistory) {
           for (const record of failedHistory) {
@@ -697,7 +705,7 @@ serve(async (req: Request): Promise<Response> => {
       const toSend: any[] = [];
       const toSkip: any[] = [];
       
-      for (const record of allPendingRecords) {
+      for (const record of pendingRecords) {
         const emailLower = record.recipient_email.toLowerCase();
         if (suppressedSet.has(emailLower) || undeliverableSet.has(emailLower) || historicalFailSet.has(emailLower)) {
           toSkip.push(record);
@@ -732,7 +740,6 @@ serve(async (req: Request): Promise<Response> => {
         
         console.log(`[ResumePending] Sending batch ${batchNum}/${totalBatches} (${batch.length} emails)`);
         
-        // Prepare Resend payloads
         const batchEmails = batch.map((record: any) => {
           const payload: any = {
             from: `${fromName} <${fromEmail}>`,
@@ -758,7 +765,6 @@ serve(async (req: Request): Promise<Response> => {
           
           if (batchResponse.error) {
             console.error(`[ResumePending] Batch error:`, batchResponse.error);
-            // Mark all as failed
             const ids = batch.map((r: any) => r.id);
             await supabase
               .from("email_sends")
@@ -774,36 +780,58 @@ serve(async (req: Request): Promise<Response> => {
             continue;
           }
           
-          // Process successful response
+          // Process successful response - BATCH DB updates
           const responseData = (batchResponse.data as any)?.data || batchResponse.data;
           if (responseData && Array.isArray(responseData)) {
             const now = new Date().toISOString();
             const senderDomain = fromEmail.split('@')[1]?.toLowerCase() || null;
+            
+            const successIds: string[] = [];
+            const successResendMap: Map<string, string> = new Map();
+            const failIds: string[] = [];
             
             for (let j = 0; j < responseData.length; j++) {
               const result = responseData[j];
               const record = batch[j];
               
               if (result.id) {
-                // Success: UPDATE existing record
-                await supabase
-                  .from("email_sends")
-                  .update({ 
-                    status: "sent", 
-                    resend_id: result.id, 
-                    sent_at: now,
-                    sender_domain: senderDomain,
-                    error_message: null 
-                  })
-                  .eq("id", record.id);
+                successIds.push(record.id);
+                successResendMap.set(record.id, result.id);
                 totalSent++;
               } else {
-                await supabase
-                  .from("email_sends")
-                  .update({ status: "failed", error_message: "Erro ao enviar" })
-                  .eq("id", record.id);
+                failIds.push(record.id);
                 totalFailed++;
               }
+            }
+            
+            // Batch update successes - update all at once, then set resend_ids individually
+            if (successIds.length > 0) {
+              // First bulk update common fields
+              await supabase
+                .from("email_sends")
+                .update({ 
+                  status: "sent", 
+                  sent_at: now,
+                  sender_domain: senderDomain,
+                  error_message: null 
+                })
+                .in("id", successIds);
+              
+              // Then set individual resend_ids (needed per record)
+              for (const [recordId, resendId] of successResendMap) {
+                await supabase
+                  .from("email_sends")
+                  .update({ resend_id: resendId })
+                  .eq("id", recordId);
+              }
+            }
+            
+            // Batch update failures
+            if (failIds.length > 0) {
+              await supabase
+                .from("email_sends")
+                .update({ status: "failed", error_message: "Erro ao enviar" })
+                .in("id", failIds);
             }
           }
           
@@ -818,7 +846,6 @@ serve(async (req: Request): Promise<Response> => {
           errors.push(`Batch ${batchNum}: ${batchError.message}`);
         }
         
-        // Small delay between batches
         if (i + RESEND_BATCH < toSend.length) {
           await new Promise(resolve => setTimeout(resolve, 50));
         }
@@ -833,7 +860,7 @@ serve(async (req: Request): Promise<Response> => {
           sent: totalSent,
           failed: totalFailed,
           skipped: toSkip.length,
-          total: allPendingRecords.length,
+          total: pendingRecords.length,
           errors,
         }),
         { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }

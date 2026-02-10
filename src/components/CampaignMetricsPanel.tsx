@@ -117,44 +117,108 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
     message: string;
   }>({ status: "idle", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: 0, message: "" });
 
-  // Resume pending emails handler
+  // Resume pending emails handler - sends in batches of 500 IDs
   const handleResumePending = async () => {
     if (!resumeFromEmail.trim() || !resumeFromName.trim()) {
       toast.error("Preencha email e nome do remetente");
       return;
     }
 
-    setResumeProgress({ status: "sending", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: pending, message: "Iniciando retomada dos pendentes..." });
+    setResumeProgress({ status: "sending", currentBatch: 0, totalBatches: 0, sent: 0, failed: 0, skipped: 0, total: pending, message: "Buscando IDs pendentes..." });
 
     try {
-      // The edge function handles all pending records in one call, processing internally in sub-batches
-      const { data, error } = await supabase.functions.invoke("send-campaign-emails", {
-        body: {
-          campaignId: campaign.id,
-          templateId: campaign.email_templates ? undefined : undefined, // not needed for resume
-          resumePending: true,
-          fromEmail: resumeFromEmail.trim(),
-          fromName: resumeFromName.trim(),
-          replyTo: resumeReplyTo.trim() || undefined,
-          emailFormat: resumeEmailFormat,
-        },
-      });
+      // Step 1: Fetch all pending email_sends IDs for this campaign
+      const FETCH_SIZE = 1000;
+      let allPendingIds: string[] = [];
+      let offset = 0;
 
-      if (error) throw new Error(error.message || "Erro na requisição");
-      if (!data.success) throw new Error(data.error || "Erro desconhecido");
+      while (true) {
+        const { data: batch, error } = await supabase
+          .from("email_sends")
+          .select("id")
+          .eq("campaign_id", campaign.id)
+          .eq("status", "pending")
+          .range(offset, offset + FETCH_SIZE - 1);
+
+        if (error) throw new Error(`Erro ao buscar pendentes: ${error.message}`);
+        if (!batch || batch.length === 0) break;
+        allPendingIds = [...allPendingIds, ...batch.map(r => r.id)];
+        if (batch.length < FETCH_SIZE) break;
+        offset += FETCH_SIZE;
+      }
+
+      if (allPendingIds.length === 0) {
+        setResumeProgress(prev => ({ ...prev, status: "completed", message: "Nenhum pendente encontrado." }));
+        return;
+      }
+
+      // Step 2: Send in batches of 500
+      const BATCH_SIZE = 500;
+      const totalBatches = Math.ceil(allPendingIds.length / BATCH_SIZE);
+      let totalSent = 0;
+      let totalFailed = 0;
+      let totalSkipped = 0;
+
+      setResumeProgress(prev => ({ ...prev, total: allPendingIds.length, totalBatches, message: `0/${totalBatches} lotes processados` }));
+
+      for (let i = 0; i < allPendingIds.length; i += BATCH_SIZE) {
+        const batchIds = allPendingIds.slice(i, i + BATCH_SIZE);
+        const batchNum = Math.floor(i / BATCH_SIZE) + 1;
+
+        setResumeProgress(prev => ({
+          ...prev,
+          currentBatch: batchNum,
+          message: `Enviando lote ${batchNum}/${totalBatches} (${batchIds.length} emails)...`,
+        }));
+
+        const { data, error } = await supabase.functions.invoke("send-campaign-emails", {
+          body: {
+            campaignId: campaign.id,
+            resumePending: true,
+            contactIds: batchIds,
+            fromEmail: resumeFromEmail.trim(),
+            fromName: resumeFromName.trim(),
+            replyTo: resumeReplyTo.trim() || undefined,
+            emailFormat: resumeEmailFormat,
+          },
+        });
+
+        if (error) {
+          console.error(`Batch ${batchNum} error:`, error);
+          // Continue with next batch instead of stopping
+          totalFailed += batchIds.length;
+        } else if (data) {
+          totalSent += data.sent || 0;
+          totalFailed += data.failed || 0;
+          totalSkipped += data.skipped || 0;
+        }
+
+        setResumeProgress(prev => ({
+          ...prev,
+          sent: totalSent,
+          failed: totalFailed,
+          skipped: totalSkipped,
+          message: `${batchNum}/${totalBatches} lotes processados`,
+        }));
+
+        // Small delay between batches
+        if (i + BATCH_SIZE < allPendingIds.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
 
       setResumeProgress({
         status: "completed",
-        currentBatch: 0,
-        totalBatches: 0,
-        sent: data.sent || 0,
-        failed: data.failed || 0,
-        skipped: data.skipped || 0,
-        total: data.total || 0,
-        message: `Concluído! ${data.sent} enviados, ${data.failed} falhas, ${data.skipped} bloqueados.`,
+        currentBatch: totalBatches,
+        totalBatches,
+        sent: totalSent,
+        failed: totalFailed,
+        skipped: totalSkipped,
+        total: allPendingIds.length,
+        message: `Concluído! ${totalSent} enviados, ${totalFailed} falhas, ${totalSkipped} bloqueados.`,
       });
 
-      toast.success(`Retomada concluída! ${data.sent} emails enviados.`);
+      toast.success(`Retomada concluída! ${totalSent} emails enviados.`);
     } catch (error: any) {
       console.error("Resume pending error:", error);
       setResumeProgress(prev => ({
@@ -675,7 +739,10 @@ export const CampaignMetricsPanel = ({ campaign, sends, metrics, isLoading }: Ca
                   <span className="text-muted-foreground">{resumeProgress.message}</span>
                 </div>
                 {resumeProgress.status === "sending" && (
-                  <Progress value={0} className="h-2" />
+                  <Progress 
+                    value={resumeProgress.totalBatches > 0 ? (resumeProgress.currentBatch / resumeProgress.totalBatches) * 100 : 0} 
+                    className="h-2" 
+                  />
                 )}
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
