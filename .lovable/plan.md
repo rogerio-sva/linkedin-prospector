@@ -1,63 +1,52 @@
 
 
-# Sincronizar Status + Capturar Emails Suprimidos do Resend
+## Plano: Reenvio dos emails falhados + Limpeza
 
-## Problema
+### 1. Remover o cron job de sync automático
+O cron `sync-email-status-auto` será removido via SQL, pois a sincronização já foi concluída (apenas 4 emails restantes).
 
-O sistema atual de sincronizacao (`sync-email-status`) consulta o Resend para atualizar status dos emails, mas **ignora o status "suppressed"**. Emails suprimidos pelo Resend ficam como "sent" no nosso banco, e continuamos tentando enviar pra eles em campanhas futuras.
+### 2. Reenviar os ~5.682 emails elegíveis
+Disparar os emails para os contatos que falharam por API key inválida (5.523) e os que nunca foram enviados (159), utilizando o fluxo existente de campanha.
 
-O Resend nao tem uma API para baixar a lista completa de suprimidos -- mas quando consultamos email por email, ele retorna `last_event: "suppressed"`. Precisamos capturar isso.
+**Critérios de exclusão automática:**
+- Contatos que já receberam (status `delivered`, `sent`, `opened`, `clicked`) nesta campanha
+- Emails na tabela `suppressed_emails`
+- Emails com histórico de `bounced` em qualquer campanha
+- Contatos com histórico de `failed` que NÃO foram causados por erro de API key (proteção existente)
 
-## Solucao
+**Estratégia técnica:**
+- Buscar os `contact_ids` elegíveis via query SQL
+- Marcar os registros `failed` (por API key) existentes como `skipped` para não conflitar
+- Usar o `send-campaign-emails` em modo `batchMode` com os IDs específicos
+- Processar em lotes de 500 pelo frontend (SendCampaignDialog / CampaignMetricsPanel)
+- Domínio `fatopericias.com.br` utilizará `RESEND_API_KEY_2` automaticamente (já implementado)
 
-### 1. Atualizar a Edge Function `sync-email-status`
+### 3. Detalhes de implementação
 
-Adicionar tratamento para dois novos status:
-
-- **`suppressed`**: Email suprimido pelo Resend (bounce/complaint anterior). Acao: marcar como `bounced` no nosso banco + adicionar a `suppressed_emails` + registrar atividade no CRM.
-- **`delivery-delayed`**: Email com entrega atrasada. Acao: apenas registrar o atraso, sem bloquear.
-
-Trecho a adicionar no mapeamento de status (apos o bloco de `complained`):
-
-```text
-if lastEvent === "suppressed":
-  - Atualizar email_sends.status = "bounced"
-  - Atualizar bounced_at, bounce_type = "Suppressed", bounce_message
-  - Inserir na suppressed_emails (reason: "resend_suppression")
-  - Registrar contact_activity (activity_type: "email_suppressed")
-  - Incrementar result.bounced
+**Passo 1 - SQL:** Remover cron job
+```sql
+SELECT cron.unschedule('sync-email-status-auto');
 ```
 
-### 2. Executar a sincronizacao da campanha Follow-up 3
+**Passo 2 - SQL:** Atualizar os 5.524 `failed` para `pending` (permitindo reprocessamento)
+```sql
+UPDATE email_sends
+SET status = 'pending', error_message = NULL, updated_at = now()
+WHERE campaign_id = '83e206de-8946-4a86-b91a-6c312474b5c3'
+  AND status = 'failed'
+  AND error_message LIKE '%API key is invalid%'
+  AND recipient_email NOT IN (SELECT email FROM suppressed_emails);
+```
 
-Apos atualizar a funcao, rodar o sync para a campanha ativa, processando os ~6.000+ emails com status `sent` que ainda nao receberam webhook. Isso vai:
-- Atualizar entregas reais (delivered, opened, clicked)
-- Detectar bounces nao capturados por webhook
-- **Capturar emails suprimidos** e adiciona-los a nossa lista local
-- Gerar numeros finais reais da campanha
+**Passo 3:** Usar a funcionalidade de "Retomar Campanha" existente (resume-campaign) para processar os pendentes. O sistema já:
+- Processa em lotes de 500
+- Usa a API key correta por domínio
+- Exclui suprimidos automaticamente
+- Registra resultados via UPDATE (sem duplicatas)
 
-Como o limite padrao e 500, serao necessarias multiplas execucoes (ou aumentar o limite).
+**Passo 4:** Para os 159 nunca enviados, criar novos registros `pending` na `email_sends` e incluí-los no mesmo fluxo de retomada.
 
-### 3. Resultado esperado
-
-Apos a sincronizacao:
-- Todos os emails suprimidos pelo Resend serao adicionados a `suppressed_emails`
-- Campanhas futuras nao enviarao mais pra esses enderecos (ja temos essa protecao pre-envio)
-- O CRM registrara a supressao no timeline do contato
-- Os numeros da campanha refletirao a realidade (delivered vs suppressed vs bounced)
-
-## Detalhes tecnicos
-
-**Arquivo modificado:** `supabase/functions/sync-email-status/index.ts`
-
-**Novo bloco de codigo** a ser inserido apos a linha 161 (apos o tratamento de `complained`):
-
-- Condicao: `lastEvent === "suppressed"`
-- Updates em `email_sends`: status = "bounced", bounce_type = "Suppressed"
-- Upsert em `suppressed_emails` com reason = "resend_suppression"
-- Insert em `contact_activities` com activity_type = "email_suppressed"
-- Contador: `result.bounced++`
-
-Tambem sera adicionado um novo campo `suppressed` ao `EmailStatusResult` para diferenciar nos relatorios.
-
-**Nenhuma alteracao de banco de dados** necessaria -- as tabelas `suppressed_emails` e `contact_activities` ja suportam os dados.
+### Resultado esperado
+- ~5.682 emails reenviados com a API key correta
+- Zero reenvios para quem já recebeu, suprimidos ou bounces
+- Cron de sync removido
