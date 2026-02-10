@@ -19,6 +19,7 @@ interface ActivityTimelineProps {
 
 const activityIcons: Record<string, React.ElementType> = {
   email_sent: Mail,
+  email_suppressed: Mail,
   linkedin_contacted: Linkedin,
   phone_call: Phone,
   note: MessageSquare,
@@ -30,6 +31,7 @@ const activityIcons: Record<string, React.ElementType> = {
 
 const activityLabels: Record<string, string> = {
   email_sent: "Email enviado",
+  email_suppressed: "Email suprimido",
   linkedin_contacted: "LinkedIn contatado",
   phone_call: "Ligação",
   note: "Nota",
