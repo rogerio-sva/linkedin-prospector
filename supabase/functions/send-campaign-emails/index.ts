@@ -46,6 +46,7 @@ interface EmailRequest {
   emailFormat?: "text" | "html";
   contactIds?: string[];
   batchMode?: boolean;
+  resumePending?: boolean;
   testRecipient?: {
     email: string;
     name: string;
@@ -520,13 +521,14 @@ serve(async (req: Request): Promise<Response> => {
       contactIds, 
       campaignId, 
       batchMode = false,
+      resumePending = false,
       testRecipient, 
       testSubject, 
       testBody,
       testContact
     }: EmailRequest = await req.json();
 
-    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, emailFormat, batchMode, contactIdsCount: contactIds?.length, testRecipient });
+    console.log("Starting email send:", { templateId, baseId, fromEmail, fromName, replyTo, emailType, emailFormat, batchMode, resumePending, contactIdsCount: contactIds?.length, testRecipient });
 
     if (!fromEmail || !fromName) {
       throw new Error("Campos obrigatórios: fromEmail, fromName");
@@ -602,12 +604,246 @@ serve(async (req: Request): Promise<Response> => {
       );
     }
 
+    // ============ RESUME PENDING MODE ============
+    // Fetches existing pending records from email_sends and re-sends them (UPDATE instead of INSERT)
+    if (resumePending && campaignId) {
+      console.log(`[ResumePending] Starting resume for campaign ${campaignId}`);
+      
+      // Fetch all pending records for this campaign
+      const PENDING_FETCH_SIZE = 500;
+      let allPendingRecords: any[] = [];
+      let pendingOffset = 0;
+      
+      while (true) {
+        const { data: pendingBatch, error: pendingError } = await supabase
+          .from("email_sends")
+          .select("id, contact_id, recipient_email, recipient_name, subject, body")
+          .eq("campaign_id", campaignId)
+          .eq("status", "pending")
+          .range(pendingOffset, pendingOffset + PENDING_FETCH_SIZE - 1);
+        
+        if (pendingError) {
+          console.error(`[ResumePending] Error fetching pending records:`, pendingError);
+          throw new Error(`Erro ao buscar pendentes: ${pendingError.message}`);
+        }
+        
+        if (!pendingBatch || pendingBatch.length === 0) break;
+        allPendingRecords = [...allPendingRecords, ...pendingBatch];
+        if (pendingBatch.length < PENDING_FETCH_SIZE) break;
+        pendingOffset += PENDING_FETCH_SIZE;
+      }
+      
+      console.log(`[ResumePending] Found ${allPendingRecords.length} pending records`);
+      
+      if (allPendingRecords.length === 0) {
+        return new Response(
+          JSON.stringify({ success: true, sent: 0, failed: 0, skipped: 0, total: 0 }),
+          { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+        );
+      }
+      
+      // Get all recipient emails for protection checks
+      const pendingEmails = allPendingRecords.map(r => r.recipient_email).filter(Boolean);
+      
+      // Fetch suppressed emails
+      const suppressedSet = new Set<string>();
+      for (let i = 0; i < pendingEmails.length; i += 100) {
+        const batch = pendingEmails.slice(i, i + 100);
+        const { data: suppressed } = await supabase
+          .from("suppressed_emails")
+          .select("email")
+          .in("email", batch);
+        (suppressed || []).forEach((s: any) => suppressedSet.add(s.email.toLowerCase()));
+      }
+      
+      // Fetch undeliverable emails
+      const undeliverableSet = new Set<string>();
+      for (let i = 0; i < pendingEmails.length; i += 100) {
+        const batch = pendingEmails.slice(i, i + 100);
+        const { data: validations } = await supabase
+          .from("email_validations")
+          .select("email, status")
+          .in("email", batch);
+        (validations || [])
+          .filter((v: any) => v.status === "undeliverable")
+          .forEach((v: any) => undeliverableSet.add(v.email.toLowerCase()));
+      }
+      
+      // Fetch historical bounce/fail emails
+      const historicalFailSet = new Set<string>();
+      for (let i = 0; i < pendingEmails.length; i += 100) {
+        const batch = pendingEmails.slice(i, i + 100);
+        const { data: failedHistory } = await supabase
+          .from("email_sends")
+          .select("recipient_email, status, error_message")
+          .in("recipient_email", batch)
+          .in("status", ["bounced", "failed"])
+          .neq("status", "pending"); // exclude current pending records
+        
+        if (failedHistory) {
+          for (const record of failedHistory) {
+            if (record.status === "failed" && record.error_message && 
+                record.error_message.toLowerCase().includes("rate limit")) {
+              continue;
+            }
+            historicalFailSet.add(record.recipient_email.toLowerCase());
+          }
+        }
+      }
+      
+      console.log(`[ResumePending] Protection: ${suppressedSet.size} suppressed, ${undeliverableSet.size} undeliverable, ${historicalFailSet.size} historical fails`);
+      
+      // Separate records into sendable and skippable
+      const toSend: any[] = [];
+      const toSkip: any[] = [];
+      
+      for (const record of allPendingRecords) {
+        const emailLower = record.recipient_email.toLowerCase();
+        if (suppressedSet.has(emailLower) || undeliverableSet.has(emailLower) || historicalFailSet.has(emailLower)) {
+          toSkip.push(record);
+        } else {
+          toSend.push(record);
+        }
+      }
+      
+      console.log(`[ResumePending] ${toSend.length} to send, ${toSkip.length} to skip`);
+      
+      // Update skipped records in batches
+      for (let i = 0; i < toSkip.length; i += 100) {
+        const batch = toSkip.slice(i, i + 100);
+        const ids = batch.map((r: any) => r.id);
+        await supabase
+          .from("email_sends")
+          .update({ status: "skipped", error_message: "Bloqueado por proteção anti-bounce" })
+          .in("id", ids);
+      }
+      
+      // Send emails in batches of 100 via Resend Batch API
+      const resendClient = getResendClient(fromEmail);
+      const RESEND_BATCH = 100;
+      let totalSent = 0;
+      let totalFailed = 0;
+      const errors: string[] = [];
+      
+      for (let i = 0; i < toSend.length; i += RESEND_BATCH) {
+        const batch = toSend.slice(i, i + RESEND_BATCH);
+        const batchNum = Math.floor(i / RESEND_BATCH) + 1;
+        const totalBatches = Math.ceil(toSend.length / RESEND_BATCH);
+        
+        console.log(`[ResumePending] Sending batch ${batchNum}/${totalBatches} (${batch.length} emails)`);
+        
+        // Prepare Resend payloads
+        const batchEmails = batch.map((record: any) => {
+          const payload: any = {
+            from: `${fromName} <${fromEmail}>`,
+            to: [record.recipient_email],
+            reply_to: replyTo || fromEmail,
+            subject: record.subject,
+          };
+          
+          if (emailFormat === "html") {
+            payload.html = record.body
+              .split("\n")
+              .map((line: string) => `<p>${line || "&nbsp;"}</p>`)
+              .join("");
+          } else {
+            payload.text = record.body;
+          }
+          
+          return payload;
+        });
+        
+        try {
+          const batchResponse = await resendClient.batch.send(batchEmails);
+          
+          if (batchResponse.error) {
+            console.error(`[ResumePending] Batch error:`, batchResponse.error);
+            // Mark all as failed
+            const ids = batch.map((r: any) => r.id);
+            await supabase
+              .from("email_sends")
+              .update({ status: "failed", error_message: (batchResponse.error as any).message || "Batch error" })
+              .in("id", ids);
+            totalFailed += batch.length;
+            
+            const errorName = (batchResponse.error as any).name;
+            if (errorName === "daily_quota_exceeded") break;
+            if (errorName === "rate_limit_exceeded") {
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            continue;
+          }
+          
+          // Process successful response
+          const responseData = (batchResponse.data as any)?.data || batchResponse.data;
+          if (responseData && Array.isArray(responseData)) {
+            const now = new Date().toISOString();
+            const senderDomain = fromEmail.split('@')[1]?.toLowerCase() || null;
+            
+            for (let j = 0; j < responseData.length; j++) {
+              const result = responseData[j];
+              const record = batch[j];
+              
+              if (result.id) {
+                // Success: UPDATE existing record
+                await supabase
+                  .from("email_sends")
+                  .update({ 
+                    status: "sent", 
+                    resend_id: result.id, 
+                    sent_at: now,
+                    sender_domain: senderDomain,
+                    error_message: null 
+                  })
+                  .eq("id", record.id);
+                totalSent++;
+              } else {
+                await supabase
+                  .from("email_sends")
+                  .update({ status: "failed", error_message: "Erro ao enviar" })
+                  .eq("id", record.id);
+                totalFailed++;
+              }
+            }
+          }
+          
+        } catch (batchError: any) {
+          console.error(`[ResumePending] Batch ${batchNum} exception:`, batchError);
+          const ids = batch.map((r: any) => r.id);
+          await supabase
+            .from("email_sends")
+            .update({ status: "failed", error_message: batchError.message || "Erro desconhecido" })
+            .in("id", ids);
+          totalFailed += batch.length;
+          errors.push(`Batch ${batchNum}: ${batchError.message}`);
+        }
+        
+        // Small delay between batches
+        if (i + RESEND_BATCH < toSend.length) {
+          await new Promise(resolve => setTimeout(resolve, 50));
+        }
+      }
+      
+      console.log(`[ResumePending] COMPLETED: ${totalSent} sent, ${totalFailed} failed, ${toSkip.length} skipped`);
+      
+      return new Response(
+        JSON.stringify({
+          success: true,
+          resumePending: true,
+          sent: totalSent,
+          failed: totalFailed,
+          skipped: toSkip.length,
+          total: allPendingRecords.length,
+          errors,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json", ...corsHeaders } }
+      );
+    }
+
     // For campaign sends, require templateId and baseId
     if (!templateId || !baseId) {
       throw new Error("Campos obrigatórios para campanha: templateId, baseId");
     }
-
-    // For batch mode, contactIds is required
     if (batchMode && (!contactIds || contactIds.length === 0)) {
       throw new Error("Batch mode requires contactIds");
     }
