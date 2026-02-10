@@ -23,8 +23,17 @@ serve(async (req) => {
 
   try {
     const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+    const RESEND_API_KEY_2 = Deno.env.get("RESEND_API_KEY_2");
     if (!RESEND_API_KEY) {
       throw new Error("RESEND_API_KEY not configured");
+    }
+
+    // Map domains to their API keys
+    function getResendKeyForDomain(domain: string | null): string {
+      if (domain === "fatopericias.com.br" && RESEND_API_KEY_2) {
+        return RESEND_API_KEY_2;
+      }
+      return RESEND_API_KEY!;
     }
 
     const supabase = createClient(
@@ -39,7 +48,7 @@ serve(async (req) => {
     // Fetch email_sends with resend_id that need status update
     let query = supabase
       .from("email_sends")
-      .select("id, resend_id, status, contact_id, recipient_email")
+      .select("id, resend_id, status, contact_id, recipient_email, sender_domain")
       .not("resend_id", "is", null)
       .in("status", ["pending", "sent"])
       .limit(limit);
@@ -73,33 +82,48 @@ serve(async (req) => {
       errors: 0,
     };
 
-    // Process emails in batches of 10 to avoid rate limits
-    const batchSize = 10;
-    for (let i = 0; i < emailSends.length; i += batchSize) {
-      const batch = emailSends.slice(i, i + batchSize);
-      
-      await Promise.all(
-        batch.map(async (emailSend) => {
-          try {
-            // Fetch email status from Resend API
-            const resendResponse = await fetch(
-              `https://api.resend.com/emails/${emailSend.resend_id}`,
-              {
-                headers: {
-                  Authorization: `Bearer ${RESEND_API_KEY}`,
-                },
-              }
-            );
+    // Helper to fetch with rate-limit retry
+    async function fetchResendEmail(resendId: string, apiKey: string): Promise<{ ok: boolean; data?: Record<string, unknown>; skip?: boolean }> {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        const resp = await fetch(`https://api.resend.com/emails/${resendId}`, {
+          headers: { Authorization: `Bearer ${apiKey}` },
+        });
+        if (resp.ok) {
+          return { ok: true, data: await resp.json() };
+        }
+        if (resp.status === 404) {
+          return { ok: false, skip: true };
+        }
+        if (resp.status === 429) {
+          console.log(`[sync-email-status] Rate limited on ${resendId}, waiting ${(attempt + 1) * 2}s...`);
+          await new Promise((r) => setTimeout(r, (attempt + 1) * 2000));
+          continue;
+        }
+        const errorText = await resp.text();
+        console.error(`[sync-email-status] Resend API error for ${resendId}: ${errorText}`);
+        return { ok: false };
+      }
+      return { ok: false };
+    }
 
-            if (!resendResponse.ok) {
-              const errorText = await resendResponse.text();
-              console.error(`[sync-email-status] Resend API error for ${emailSend.resend_id}: ${errorText}`);
-              result.errors++;
-              return;
-            }
+    // Process emails sequentially, ~1.5 req/s to respect Resend 2 req/s limit
+    for (let i = 0; i < emailSends.length; i++) {
+      const emailSend = emailSends[i];
+      try {
+        const apiKey = getResendKeyForDomain(emailSend.sender_domain);
+        const fetchResult = await fetchResendEmail(emailSend.resend_id, apiKey);
+        
+        if (fetchResult.skip) {
+          console.log(`[sync-email-status] Email ${emailSend.resend_id} not found in Resend, skipping`);
+          continue;
+        }
+        if (!fetchResult.ok || !fetchResult.data) {
+          result.errors++;
+          continue;
+        }
 
-            const resendData = await resendResponse.json();
-            const lastEvent = resendData.last_event;
+        const resendData = fetchResult.data;
+        const lastEvent = resendData.last_event;
 
             console.log(`[sync-email-status] Email ${emailSend.resend_id} last_event: ${lastEvent}`);
 
@@ -210,16 +234,14 @@ serve(async (req) => {
                 result.synced++;
               }
             }
-          } catch (err) {
-            console.error(`[sync-email-status] Error processing ${emailSend.resend_id}:`, err);
-            result.errors++;
-          }
-        })
-      );
+      } catch (err) {
+        console.error(`[sync-email-status] Error processing ${emailSend.resend_id}:`, err);
+        result.errors++;
+      }
 
-      // Small delay between batches to avoid rate limits
-      if (i + batchSize < emailSends.length) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
+      // Delay 550ms between requests to stay under 2 req/s Resend limit
+      if (i < emailSends.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 550));
       }
     }
 
