@@ -190,10 +190,18 @@ async function sendEmailsWithBatchAPI(
     
     if (failedHistory) {
       for (const record of failedHistory) {
-        // Skip transient rate limit errors - those are retryable
-        if (record.status === "failed" && record.error_message && 
-            record.error_message.toLowerCase().includes("rate limit")) {
-          continue;
+        // Skip technical/configuration errors - not recipient's fault
+        if (record.status === "failed" && record.error_message) {
+          const msg = record.error_message.toLowerCase();
+          if (
+            msg.includes("rate limit") ||
+            msg.includes("too many requests") ||
+            msg.includes("api key is invalid") ||
+            msg.includes("api key unauthorized") ||
+            msg.includes("unauthorized for domain")
+          ) {
+            continue;
+          }
         }
         historicalFailSet.add(record.recipient_email.toLowerCase());
       }
@@ -690,9 +698,18 @@ serve(async (req: Request): Promise<Response> => {
         
         if (failedHistory) {
           for (const record of failedHistory) {
-            if (record.status === "failed" && record.error_message && 
-                record.error_message.toLowerCase().includes("rate limit")) {
-              continue;
+            // Skip technical/configuration errors - not recipient's fault
+            if (record.status === "failed" && record.error_message) {
+              const msg = record.error_message.toLowerCase();
+              if (
+                msg.includes("rate limit") ||
+                msg.includes("too many requests") ||
+                msg.includes("api key is invalid") ||
+                msg.includes("api key unauthorized") ||
+                msg.includes("unauthorized for domain")
+              ) {
+                continue;
+              }
             }
             historicalFailSet.add(record.recipient_email.toLowerCase());
           }
