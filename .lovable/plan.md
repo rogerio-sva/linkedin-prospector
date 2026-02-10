@@ -1,65 +1,63 @@
 
 
-# Retomar Disparos Pendentes da Campanha "Follow-up 3 Advogados"
+# Sincronizar Status + Capturar Emails Suprimidos do Resend
 
-## Situacao Atual
+## Problema
 
-A campanha "Follow-up 3 Advogados - 09/02/2026" parou com o seguinte estado:
+O sistema atual de sincronizacao (`sync-email-status`) consulta o Resend para atualizar status dos emails, mas **ignora o status "suppressed"**. Emails suprimidos pelo Resend ficam como "sent" no nosso banco, e continuamos tentando enviar pra eles em campanhas futuras.
 
-| Status | Quantidade |
-|--------|-----------|
-| Delivered | 2.252 |
-| Sent (aguardando webhook) | 2.132 |
-| Bounced | 1.430 |
-| Failed (API key) | 5.524 |
-| **Pending (nao enviados)** | **7.480** |
-| Complained | 1 |
+O Resend nao tem uma API para baixar a lista completa de suprimidos -- mas quando consultamos email por email, ele retorna `last_event: "suppressed"`. Precisamos capturar isso.
 
-Dos 7.480 pendentes, ~808 possuem emails com historico de bounce/failed e serao automaticamente bloqueados pela protecao recém-implementada.
+## Solucao
 
-## Problema Tecnico
+### 1. Atualizar a Edge Function `sync-email-status`
 
-A edge function `send-campaign-emails` sempre **insere novos registros** na tabela `email_sends`. Porem, os 7.480 pendentes **ja possuem registros** nessa tabela (com `status = 'pending'`). Se reenviarmos normalmente, criaremos duplicatas.
+Adicionar tratamento para dois novos status:
 
-## Plano de Implementacao
+- **`suppressed`**: Email suprimido pelo Resend (bounce/complaint anterior). Acao: marcar como `bounced` no nosso banco + adicionar a `suppressed_emails` + registrar atividade no CRM.
+- **`delivery-delayed`**: Email com entrega atrasada. Acao: apenas registrar o atraso, sem bloquear.
 
-### 1. Adicionar modo "resumePending" na edge function `send-campaign-emails`
-
-Novo parametro `resumePending: true` que muda o comportamento:
-- Em vez de buscar contatos da tabela `contacts`, busca diretamente os records da `email_sends` com `status = 'pending'` para a campanha especificada
-- Aplica os mesmos filtros de protecao (suppressed, undeliverable, historical fails)
-- Apos enviar com sucesso: faz **UPDATE** no record existente (status, resend_id, sent_at) em vez de INSERT
-- Records bloqueados pela protecao sao atualizados para `status = 'skipped'`
-
-Arquivo: `supabase/functions/send-campaign-emails/index.ts`
-
-### 2. Adicionar botao "Retomar Pendentes" no CampaignMetricsPanel
-
-Quando uma campanha possui records com `status = 'pending'`, exibir um botao "Retomar Pendentes" no painel de metricas. Ao clicar:
-- Abre um dialog pedindo os dados de envio (fromEmail, fromName, replyTo, emailType, emailFormat)
-- Envia os pendentes em lotes de 500 (mesmo fluxo do SendCampaignDialog)
-- Mostra progresso em tempo real
-
-Arquivo: `src/components/CampaignMetricsPanel.tsx`
-
-### 3. Detalhes da logica de resume
+Trecho a adicionar no mapeamento de status (apos o bloco de `complained`):
 
 ```text
-1. Frontend envia: { campaignId, resumePending: true, fromEmail, fromName, ... }
-2. Edge function busca: SELECT * FROM email_sends WHERE campaign_id = X AND status = 'pending'
-3. Para cada pending record:
-   a. Verifica se recipient_email esta em suppressed/undeliverable/historical fails
-   b. Se bloqueado: UPDATE status = 'skipped'
-   c. Se ok: envia via Resend Batch API
-   d. Sucesso: UPDATE status = 'sent', resend_id = X, sent_at = now()
-   e. Falha: UPDATE status = 'failed', error_message = '...'
-4. Retorna contagens: { sent, failed, skipped, total }
+if lastEvent === "suppressed":
+  - Atualizar email_sends.status = "bounced"
+  - Atualizar bounced_at, bounce_type = "Suppressed", bounce_message
+  - Inserir na suppressed_emails (reason: "resend_suppression")
+  - Registrar contact_activity (activity_type: "email_suppressed")
+  - Incrementar result.bounced
 ```
 
-### 4. Numeros esperados
+### 2. Executar a sincronizacao da campanha Follow-up 3
 
-- ~7.480 pending records a processar
-- ~808 serao bloqueados (historico de bounce/failed) → status = 'skipped'
-- ~170 serao bloqueados (lista de supressao)
-- ~6.500 serao efetivamente enviados
+Apos atualizar a funcao, rodar o sync para a campanha ativa, processando os ~6.000+ emails com status `sent` que ainda nao receberam webhook. Isso vai:
+- Atualizar entregas reais (delivered, opened, clicked)
+- Detectar bounces nao capturados por webhook
+- **Capturar emails suprimidos** e adiciona-los a nossa lista local
+- Gerar numeros finais reais da campanha
 
+Como o limite padrao e 500, serao necessarias multiplas execucoes (ou aumentar o limite).
+
+### 3. Resultado esperado
+
+Apos a sincronizacao:
+- Todos os emails suprimidos pelo Resend serao adicionados a `suppressed_emails`
+- Campanhas futuras nao enviarao mais pra esses enderecos (ja temos essa protecao pre-envio)
+- O CRM registrara a supressao no timeline do contato
+- Os numeros da campanha refletirao a realidade (delivered vs suppressed vs bounced)
+
+## Detalhes tecnicos
+
+**Arquivo modificado:** `supabase/functions/sync-email-status/index.ts`
+
+**Novo bloco de codigo** a ser inserido apos a linha 161 (apos o tratamento de `complained`):
+
+- Condicao: `lastEvent === "suppressed"`
+- Updates em `email_sends`: status = "bounced", bounce_type = "Suppressed"
+- Upsert em `suppressed_emails` com reason = "resend_suppression"
+- Insert em `contact_activities` com activity_type = "email_suppressed"
+- Contador: `result.bounced++`
+
+Tambem sera adicionado um novo campo `suppressed` ao `EmailStatusResult` para diferenciar nos relatorios.
+
+**Nenhuma alteracao de banco de dados** necessaria -- as tabelas `suppressed_emails` e `contact_activities` ja suportam os dados.
