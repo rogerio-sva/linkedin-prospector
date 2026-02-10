@@ -1,52 +1,71 @@
 
+# Corrigir Lógica de Protecao Anti-Bounce
 
-## Plano: Reenvio dos emails falhados + Limpeza
+## Problema Identificado
 
-### 1. Remover o cron job de sync automático
-O cron `sync-email-status-auto` será removido via SQL, pois a sincronização já foi concluída (apenas 4 emails restantes).
+A protecao anti-bounce no `send-campaign-emails` bloqueia destinatarios que possuem historico de `failed` em **qualquer campanha**, mesmo quando a falha foi causada por erro de configuracao (ex: "API key is invalid", "API key unauthorized for domain"). Esses nao sao problemas do destinatario e nao deveriam impedir reenvios.
 
-### 2. Reenviar os ~5.682 emails elegíveis
-Disparar os emails para os contatos que falharam por API key inválida (5.523) e os que nunca foram enviados (159), utilizando o fluxo existente de campanha.
+Resultado: 6.141 emails foram marcados como `skipped` desnecessariamente na remediacao da campanha Follow-up 3 Advogados.
 
-**Critérios de exclusão automática:**
-- Contatos que já receberam (status `delivered`, `sent`, `opened`, `clicked`) nesta campanha
-- Emails na tabela `suppressed_emails`
-- Emails com histórico de `bounced` em qualquer campanha
-- Contatos com histórico de `failed` que NÃO foram causados por erro de API key (proteção existente)
+## Solucao
 
-**Estratégia técnica:**
-- Buscar os `contact_ids` elegíveis via query SQL
-- Marcar os registros `failed` (por API key) existentes como `skipped` para não conflitar
-- Usar o `send-campaign-emails` em modo `batchMode` com os IDs específicos
-- Processar em lotes de 500 pelo frontend (SendCampaignDialog / CampaignMetricsPanel)
-- Domínio `fatopericias.com.br` utilizará `RESEND_API_KEY_2` automaticamente (já implementado)
+Alterar a logica de protecao anti-bounce para **ignorar falhas tecnicas** que nao sao culpa do destinatario.
 
-### 3. Detalhes de implementação
+### Falhas a ignorar (falsos positivos):
 
-**Passo 1 - SQL:** Remover cron job
-```sql
-SELECT cron.unschedule('sync-email-status-auto');
+- `"API key is invalid"` - erro de configuracao de chave
+- `"API key unauthorized for domain"` - dominio nao autorizado na chave
+- `"rate limit"` - ja ignorado atualmente
+- `"Too many requests"` - variacao do rate limit
+
+### Arquivo a alterar
+
+`supabase/functions/send-campaign-emails/index.ts`, linhas 680-699
+
+### Mudanca especifica
+
+Na secao `resumePending`, onde se filtra o `historicalFailSet`, a logica atual so ignora `rate limit`. Expandir para ignorar todas as falhas tecnicas/configuracao:
+
+```typescript
+if (failedHistory) {
+  for (const record of failedHistory) {
+    // Skip technical/configuration errors - not recipient's fault
+    if (record.status === "failed" && record.error_message) {
+      const msg = record.error_message.toLowerCase();
+      if (
+        msg.includes("rate limit") ||
+        msg.includes("too many requests") ||
+        msg.includes("api key is invalid") ||
+        msg.includes("api key unauthorized") ||
+        msg.includes("unauthorized for domain")
+      ) {
+        continue;
+      }
+    }
+    historicalFailSet.add(record.recipient_email.toLowerCase());
+  }
+}
 ```
 
-**Passo 2 - SQL:** Atualizar os 5.524 `failed` para `pending` (permitindo reprocessamento)
+### Mesma correcao no fluxo normal (nao-resume)
+
+Verificar se a mesma logica de protecao existe no fluxo normal de envio (nao `resumePending`) e aplicar a mesma correcao la tambem, para consistencia.
+
+### Apos o deploy
+
+Resetar os 6.141 registros `skipped` desta campanha para `pending` e reprocessar:
+
 ```sql
 UPDATE email_sends
-SET status = 'pending', error_message = NULL, updated_at = now()
+SET status = 'pending', error_message = NULL
 WHERE campaign_id = '83e206de-8946-4a86-b91a-6c312474b5c3'
-  AND status = 'failed'
-  AND error_message LIKE '%API key is invalid%'
-  AND recipient_email NOT IN (SELECT email FROM suppressed_emails);
+  AND status = 'skipped'
+  AND error_message = 'Bloqueado por proteção anti-bounce';
 ```
 
-**Passo 3:** Usar a funcionalidade de "Retomar Campanha" existente (resume-campaign) para processar os pendentes. O sistema já:
-- Processa em lotes de 500
-- Usa a API key correta por domínio
-- Exclui suprimidos automaticamente
-- Registra resultados via UPDATE (sem duplicatas)
+## Detalhes tecnicos
 
-**Passo 4:** Para os 159 nunca enviados, criar novos registros `pending` na `email_sends` e incluí-los no mesmo fluxo de retomada.
-
-### Resultado esperado
-- ~5.682 emails reenviados com a API key correta
-- Zero reenvios para quem já recebeu, suprimidos ou bounces
-- Cron de sync removido
+- Arquivo: `supabase/functions/send-campaign-emails/index.ts`
+- Linhas afetadas: ~690-699 (bloco `resumePending`) e potencialmente o fluxo normal de envio
+- A Edge Function sera reimplantada automaticamente apos a alteracao
+- O reset dos 6.141 registros sera feito via ferramenta de migracao SQL
