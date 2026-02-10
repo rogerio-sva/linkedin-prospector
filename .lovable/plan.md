@@ -1,47 +1,65 @@
 
-# Limpeza Completa de Bounces e Proteção Anti-Reenvio
 
-## Resumo da Situacao
+# Retomar Disparos Pendentes da Campanha "Follow-up 3 Advogados"
 
-- **292 contatos** ainda possuem emails que estao na lista de supressao (todos com LinkedIn)
-- **38.502 envios** falharam por "API key invalida" — nao sairam de fato, mas os destinatarios nao devem ser reenviados sem validacao
-- A lista de supressao ja tem **10.916 emails** registrados
+## Situacao Atual
 
-## Plano em 2 Etapas
+A campanha "Follow-up 3 Advogados - 09/02/2026" parou com o seguinte estado:
 
-### Etapa 1: Limpar os 292 contatos pendentes
+| Status | Quantidade |
+|--------|-----------|
+| Delivered | 2.252 |
+| Sent (aguardando webhook) | 2.132 |
+| Bounced | 1.430 |
+| Failed (API key) | 5.524 |
+| **Pending (nao enviados)** | **7.480** |
+| Complained | 1 |
 
-Executar o `execute-bounce-cleanup` que ja existe. Ele vai:
-- Encontrar os 292 contatos via a funcao SQL `find_contacts_with_bounced_emails`
-- Como todos tem LinkedIn: limpar os campos `email` e `personal_email`, resetar `crm_stage` para "Novo Lead"
-- Registrar atividade no historico de cada contato
+Dos 7.480 pendentes, ~808 possuem emails com historico de bounce/failed e serao automaticamente bloqueados pela protecao recém-implementada.
 
-Nenhuma alteracao de codigo necessaria — basta chamar a funcao existente.
+## Problema Tecnico
 
-### Etapa 2: Implementar protecao pre-envio anti-failed/bounce
+A edge function `send-campaign-emails` sempre **insere novos registros** na tabela `email_sends`. Porem, os 7.480 pendentes **ja possuem registros** nessa tabela (com `status = 'pending'`). Se reenviarmos normalmente, criaremos duplicatas.
 
-Modificar a edge function `send-campaign-emails` para bloquear automaticamente qualquer destinatario que tenha historico de:
-- `status = 'bounced'` (qualquer tipo)
-- `status = 'failed'` (exceto falhas de rate limit, que sao transitorias)
+## Plano de Implementacao
 
-Isso impede que os 38.502 enderecos que falharam por API key sejam incluidos em campanhas futuras.
+### 1. Adicionar modo "resumePending" na edge function `send-campaign-emails`
 
----
+Novo parametro `resumePending: true` que muda o comportamento:
+- Em vez de buscar contatos da tabela `contacts`, busca diretamente os records da `email_sends` com `status = 'pending'` para a campanha especificada
+- Aplica os mesmos filtros de protecao (suppressed, undeliverable, historical fails)
+- Apos enviar com sucesso: faz **UPDATE** no record existente (status, resend_id, sent_at) em vez de INSERT
+- Records bloqueados pela protecao sao atualizados para `status = 'skipped'`
 
-## Detalhes Tecnicos
+Arquivo: `supabase/functions/send-campaign-emails/index.ts`
 
-### Etapa 1 — Execucao manual do cleanup
+### 2. Adicionar botao "Retomar Pendentes" no CampaignMetricsPanel
 
-Chamar a edge function `execute-bounce-cleanup` via curl. Sem alteracoes de codigo.
+Quando uma campanha possui records com `status = 'pending'`, exibir um botao "Retomar Pendentes" no painel de metricas. Ao clicar:
+- Abre um dialog pedindo os dados de envio (fromEmail, fromName, replyTo, emailType, emailFormat)
+- Envia os pendentes em lotes de 500 (mesmo fluxo do SendCampaignDialog)
+- Mostra progresso em tempo real
 
-### Etapa 2 — Alteracao na `send-campaign-emails`
+Arquivo: `src/components/CampaignMetricsPanel.tsx`
 
-No trecho onde a lista de destinatarios e montada (apos filtrar suprimidos e invalidados), adicionar uma consulta a `email_sends` para buscar emails distintos com `status IN ('bounced', 'failed')` e `error_message NOT LIKE '%rate limit%'`. Esses emails serao removidos da lista de envio.
+### 3. Detalhes da logica de resume
 
-Arquivo modificado:
-- `supabase/functions/send-campaign-emails/index.ts`
+```text
+1. Frontend envia: { campaignId, resumePending: true, fromEmail, fromName, ... }
+2. Edge function busca: SELECT * FROM email_sends WHERE campaign_id = X AND status = 'pending'
+3. Para cada pending record:
+   a. Verifica se recipient_email esta em suppressed/undeliverable/historical fails
+   b. Se bloqueado: UPDATE status = 'skipped'
+   c. Se ok: envia via Resend Batch API
+   d. Sucesso: UPDATE status = 'sent', resend_id = X, sent_at = now()
+   e. Falha: UPDATE status = 'failed', error_message = '...'
+4. Retorna contagens: { sent, failed, skipped, total }
+```
 
-Tambem atualizar o `SendCampaignDialog.tsx` para exibir ao usuario a contagem de emails bloqueados por historico de falha, junto com as outras metricas ja exibidas (suprimidos, invalidados).
+### 4. Numeros esperados
 
-Arquivos modificados:
-- `src/components/SendCampaignDialog.tsx`
+- ~7.480 pending records a processar
+- ~808 serao bloqueados (historico de bounce/failed) → status = 'skipped'
+- ~170 serao bloqueados (lista de supressao)
+- ~6.500 serao efetivamente enviados
+
