@@ -10,6 +10,8 @@ interface EmailStatusResult {
   synced: number;
   bounced: number;
   delivered: number;
+  suppressed: number;
+  delayed: number;
   errors: number;
 }
 
@@ -55,7 +57,7 @@ serve(async (req) => {
     if (!emailSends || emailSends.length === 0) {
       console.log("[sync-email-status] No emails to sync");
       return new Response(
-        JSON.stringify({ synced: 0, bounced: 0, delivered: 0, errors: 0, message: "No emails to sync" }),
+        JSON.stringify({ synced: 0, bounced: 0, delivered: 0, suppressed: 0, delayed: 0, errors: 0, message: "No emails to sync" }),
         { headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }
@@ -66,6 +68,8 @@ serve(async (req) => {
       synced: 0,
       bounced: 0,
       delivered: 0,
+      suppressed: 0,
+      delayed: 0,
       errors: 0,
     };
 
@@ -159,6 +163,38 @@ serve(async (req) => {
                 },
                 { onConflict: "email" }
               );
+            } else if (lastEvent === "suppressed") {
+              // Email suprimido pelo Resend (bounce/complaint anterior em qualquer conta)
+              updates.status = "bounced";
+              updates.bounced_at = new Date().toISOString();
+              updates.bounce_type = "Suppressed";
+              updates.bounce_message = "Email suprimido pelo Resend (suppression list)";
+              result.bounced++;
+              result.suppressed++;
+
+              // Add to suppressed_emails
+              await supabase.from("suppressed_emails").upsert(
+                {
+                  email: emailSend.recipient_email,
+                  reason: "resend_suppression",
+                  bounce_type: "Suppressed",
+                  original_error: "Email na lista de supressão global do Resend",
+                  source_contact_id: emailSend.contact_id,
+                },
+                { onConflict: "email" }
+              );
+
+              // Log activity for CRM
+              await supabase.from("contact_activities").insert({
+                contact_id: emailSend.contact_id,
+                activity_type: "email_suppressed",
+                description: `Email suprimido pelo Resend: ${emailSend.recipient_email}`,
+                metadata: { reason: "resend_suppression", synced: true },
+              });
+            } else if (lastEvent === "delivery-delayed") {
+              // Entrega atrasada - apenas registrar sem bloquear
+              updates.delivery_delayed_at = new Date().toISOString();
+              result.delayed++;
             }
 
             if (Object.keys(updates).length > 0) {
@@ -192,7 +228,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         ...result,
-        message: `Sincronização concluída: ${result.synced} atualizados, ${result.bounced} bounces, ${result.delivered} entregues, ${result.errors} erros`,
+        message: `Sincronização concluída: ${result.synced} atualizados, ${result.bounced} bounces (${result.suppressed} suprimidos), ${result.delivered} entregues, ${result.delayed} atrasados, ${result.errors} erros`,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
