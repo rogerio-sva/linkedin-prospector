@@ -68,3 +68,6 @@ verify_jwt = false
 
 [functions.remove-contacts-by-email]
 verify_jwt = false
+
+[functions.scheduled-resume]
+verify_jwt = false
