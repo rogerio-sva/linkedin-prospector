@@ -1,38 +1,40 @@
 
-# Agendar Envio dos 6.141 Pendentes para Amanha 8h30 BRT
+
+# Enviar os 6.141 Pendentes Imediatamente
 
 ## O que sera feito
 
-Criar uma Edge Function dedicada (`scheduled-resume`) que faz o trabalho que o frontend faria: busca todos os IDs pendentes da campanha e chama a `send-campaign-emails` em lotes de 500, tudo server-side. Depois, agendar via pg_cron para executar amanha as 11:30 UTC (8:30 BRT).
+Disparar a Edge Function `scheduled-resume` agora mesmo, manualmente, para iniciar o envio dos 6.141 emails pendentes da campanha "Follow-up 3 Advogados". Alem disso, remover o cron job agendado para amanha, ja que nao sera mais necessario.
 
 ## Etapas
 
-### 1. Criar Edge Function `scheduled-resume`
+### 1. Chamar a Edge Function `scheduled-resume` agora
 
-Uma funcao que recebe `campaignId`, `fromEmail`, `fromName`, `replyTo`, `emailFormat` e:
-- Busca todos os `email_sends` com `status = 'pending'` para a campanha
-- Divide em lotes de 500 IDs
-- Chama `send-campaign-emails` com `resumePending: true` para cada lote sequencialmente
-- Usa `EdgeRuntime.waitUntil()` para processar em background
+Fazer um POST direto na funcao com os mesmos parametros que estavam configurados no cron:
+- **campaignId:** `83e206de-8946-4a86-b91a-6c312474b5c3`
+- **fromEmail:** `contato@fatopericias.com.br`
+- **fromName:** `Thiago Vieira`
+- **replyTo:** `contato@fatopericias.com.br`
+- **emailFormat:** `text`
 
-### 2. Agendar com pg_cron
+A funcao vai buscar todos os pendentes e processar em lotes de 500 em background.
 
-Criar um job unico via SQL que dispara amanha (2026-02-12) as 11:30 UTC:
-- Usa `pg_net` para fazer HTTP POST na Edge Function `scheduled-resume`
-- Passa os parametros da campanha (`83e206de-...`, `fatopericias.com.br`, etc.)
-- Job executa uma unica vez e pode ser removido depois
+### 2. Remover o cron job de amanha
 
-### 3. Parametros do envio
+Executar SQL para desagendar o job `scheduled-resume-followup3`, ja que o envio sera feito agora.
 
-- **Campanha:** `83e206de-8946-4a86-b91a-6c312474b5c3`
-- **Remetente:** dominio `fatopericias.com.br` (mesmo usado nos envios anteriores)
-- **Formato:** texto puro (melhor entrega)
-- **Pendentes:** 6.141 emails
+```sql
+select cron.unschedule('scheduled-resume-followup3');
+```
+
+### 3. Monitorar
+
+Acompanhar os logs da Edge Function para confirmar que os lotes estao sendo processados.
 
 ## Secao tecnica
 
-- **Arquivo novo:** `supabase/functions/scheduled-resume/index.ts`
-- **SQL (via insert, nao migracao):** `cron.schedule()` com `pg_net.http_post()` para 2026-02-12 11:30 UTC
-- O cron sera configurado para rodar no minuto especifico e depois auto-removido (ou removido manualmente)
-- A Edge Function `scheduled-resume` chamara internamente a `send-campaign-emails` via HTTP fetch em lotes
-- Sera necessario confirmar o email e nome exatos do remetente antes de agendar
+- Nenhum arquivo novo ou alteracao de codigo necessaria
+- A Edge Function `scheduled-resume` ja esta deployada e pronta
+- O processamento usa `EdgeRuntime.waitUntil()` para rodar em background
+- Serao ~13 lotes de 500 emails cada, com 2 segundos de intervalo entre lotes
+
