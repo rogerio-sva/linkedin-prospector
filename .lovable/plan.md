@@ -1,71 +1,38 @@
 
-# Corrigir Lógica de Protecao Anti-Bounce
+# Agendar Envio dos 6.141 Pendentes para Amanha 8h30 BRT
 
-## Problema Identificado
+## O que sera feito
 
-A protecao anti-bounce no `send-campaign-emails` bloqueia destinatarios que possuem historico de `failed` em **qualquer campanha**, mesmo quando a falha foi causada por erro de configuracao (ex: "API key is invalid", "API key unauthorized for domain"). Esses nao sao problemas do destinatario e nao deveriam impedir reenvios.
+Criar uma Edge Function dedicada (`scheduled-resume`) que faz o trabalho que o frontend faria: busca todos os IDs pendentes da campanha e chama a `send-campaign-emails` em lotes de 500, tudo server-side. Depois, agendar via pg_cron para executar amanha as 11:30 UTC (8:30 BRT).
 
-Resultado: 6.141 emails foram marcados como `skipped` desnecessariamente na remediacao da campanha Follow-up 3 Advogados.
+## Etapas
 
-## Solucao
+### 1. Criar Edge Function `scheduled-resume`
 
-Alterar a logica de protecao anti-bounce para **ignorar falhas tecnicas** que nao sao culpa do destinatario.
+Uma funcao que recebe `campaignId`, `fromEmail`, `fromName`, `replyTo`, `emailFormat` e:
+- Busca todos os `email_sends` com `status = 'pending'` para a campanha
+- Divide em lotes de 500 IDs
+- Chama `send-campaign-emails` com `resumePending: true` para cada lote sequencialmente
+- Usa `EdgeRuntime.waitUntil()` para processar em background
 
-### Falhas a ignorar (falsos positivos):
+### 2. Agendar com pg_cron
 
-- `"API key is invalid"` - erro de configuracao de chave
-- `"API key unauthorized for domain"` - dominio nao autorizado na chave
-- `"rate limit"` - ja ignorado atualmente
-- `"Too many requests"` - variacao do rate limit
+Criar um job unico via SQL que dispara amanha (2026-02-12) as 11:30 UTC:
+- Usa `pg_net` para fazer HTTP POST na Edge Function `scheduled-resume`
+- Passa os parametros da campanha (`83e206de-...`, `fatopericias.com.br`, etc.)
+- Job executa uma unica vez e pode ser removido depois
 
-### Arquivo a alterar
+### 3. Parametros do envio
 
-`supabase/functions/send-campaign-emails/index.ts`, linhas 680-699
+- **Campanha:** `83e206de-8946-4a86-b91a-6c312474b5c3`
+- **Remetente:** dominio `fatopericias.com.br` (mesmo usado nos envios anteriores)
+- **Formato:** texto puro (melhor entrega)
+- **Pendentes:** 6.141 emails
 
-### Mudanca especifica
+## Secao tecnica
 
-Na secao `resumePending`, onde se filtra o `historicalFailSet`, a logica atual so ignora `rate limit`. Expandir para ignorar todas as falhas tecnicas/configuracao:
-
-```typescript
-if (failedHistory) {
-  for (const record of failedHistory) {
-    // Skip technical/configuration errors - not recipient's fault
-    if (record.status === "failed" && record.error_message) {
-      const msg = record.error_message.toLowerCase();
-      if (
-        msg.includes("rate limit") ||
-        msg.includes("too many requests") ||
-        msg.includes("api key is invalid") ||
-        msg.includes("api key unauthorized") ||
-        msg.includes("unauthorized for domain")
-      ) {
-        continue;
-      }
-    }
-    historicalFailSet.add(record.recipient_email.toLowerCase());
-  }
-}
-```
-
-### Mesma correcao no fluxo normal (nao-resume)
-
-Verificar se a mesma logica de protecao existe no fluxo normal de envio (nao `resumePending`) e aplicar a mesma correcao la tambem, para consistencia.
-
-### Apos o deploy
-
-Resetar os 6.141 registros `skipped` desta campanha para `pending` e reprocessar:
-
-```sql
-UPDATE email_sends
-SET status = 'pending', error_message = NULL
-WHERE campaign_id = '83e206de-8946-4a86-b91a-6c312474b5c3'
-  AND status = 'skipped'
-  AND error_message = 'Bloqueado por proteção anti-bounce';
-```
-
-## Detalhes tecnicos
-
-- Arquivo: `supabase/functions/send-campaign-emails/index.ts`
-- Linhas afetadas: ~690-699 (bloco `resumePending`) e potencialmente o fluxo normal de envio
-- A Edge Function sera reimplantada automaticamente apos a alteracao
-- O reset dos 6.141 registros sera feito via ferramenta de migracao SQL
+- **Arquivo novo:** `supabase/functions/scheduled-resume/index.ts`
+- **SQL (via insert, nao migracao):** `cron.schedule()` com `pg_net.http_post()` para 2026-02-12 11:30 UTC
+- O cron sera configurado para rodar no minuto especifico e depois auto-removido (ou removido manualmente)
+- A Edge Function `scheduled-resume` chamara internamente a `send-campaign-emails` via HTTP fetch em lotes
+- Sera necessario confirmar o email e nome exatos do remetente antes de agendar
