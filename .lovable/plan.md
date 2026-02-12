@@ -1,66 +1,55 @@
 
-# Limpeza de Bounces - Campanha Follow-up 3 Advogados
+# Correcao: Filtro de estagio CRM nos disparos de campanha
 
-## Situacao atual
+## Problema identificado
 
-A campanha gerou **4.846 bounces**, sendo:
-- **2.711** Permanentes
-- **1.877** Suprimidos (bloqueados pelo Resend)
-- **255** Transientes
-- **3** Indeterminados
+A contato **Bruna Amaral** (`bruna@glmadv.com.br`) foi movida para **"Em Negociacao"** em 16/01/2026, mas recebeu email da campanha Follow-up 3 em 10/02/2026.
 
-Dos bounces permanentes/suprimidos:
-- **4.588 contatos** afetados
-- **Todos possuem LinkedIn** (nenhum sera deletado)
-- **3.172** ainda possuem email preenchido na base (precisam ser limpos)
-- **1.416** ja foram limpos em operacoes anteriores
-- Todos os emails ja estao na lista de suprimidos (protecao contra reenvio OK)
+**Causa raiz**: O frontend (`SendCampaignDialog`) filtra corretamente por estagio CRM (so permite "Novo Lead" e "Email Enviado"), porem as funcoes backend nao aplicam esse mesmo filtro:
 
-## O que sera feito
+1. **`resume-campaign`**: Busca todos os contatos da base com email, sem verificar estagio CRM
+2. **`send-campaign-emails`**: Recebe `contactIds` e processa sem re-verificar o estagio
 
-Executar uma query SQL para:
+## Correcao proposta
 
-1. **Limpar os campos de email** (`email` e `personal_email` = NULL) dos 3.172 contatos que ainda possuem email
-2. **Resetar o estagio CRM** para "Novo Lead" — indicando que estao disponiveis para prospecao via LinkedIn
-3. **Registrar atividade** no historico de cada contato (bounce_cleanup)
+### 1. Corrigir `resume-campaign/index.ts`
+
+Adicionar filtro de estagio CRM na query de busca de contatos (linha ~169):
+
+```text
+ANTES:
+.or("email.not.is.null,personal_email.not.is.null")
+
+DEPOIS:
+.or("email.not.is.null,personal_email.not.is.null")
+.or("crm_stage.is.null,crm_stage.eq.,crm_stage.in.(Novo Lead,Email Enviado)")
+```
+
+Isso garante que contatos em estagios avancados (Prospecao, Em Negociacao, Proposta Enviada, Fechado Ganho, Fechado Perdido) sejam excluidos automaticamente durante a retomada de campanhas.
+
+### 2. Corrigir `send-campaign-emails/index.ts`
+
+Adicionar verificacao de estagio CRM ao processar `contactIds` recebidos. Antes de enviar, buscar o `crm_stage` de cada contato e pular os que estiverem em estagios avancados.
+
+Especificamente, na logica que carrega os contatos pelo `contactIds`, adicionar a coluna `crm_stage` na query e filtrar apenas os permitidos ("Novo Lead", "Email Enviado", null ou vazio).
+
+### 3. Definir constante compartilhada
+
+Criar uma lista de estagios permitidos para envio em ambas as funcoes:
+
+```typescript
+const SENDABLE_STAGES = ["Novo Lead", "Email Enviado"];
+```
 
 ## Secao tecnica
 
-### Passo 1 — Limpar emails e resetar CRM stage
+### Arquivos modificados
 
-```sql
-UPDATE contacts
-SET email = NULL, personal_email = NULL, crm_stage = 'Novo Lead'
-WHERE id IN (
-  SELECT DISTINCT es.contact_id
-  FROM email_sends es
-  WHERE es.campaign_id = '83e206de-8946-4a86-b91a-6c312474b5c3'
-    AND es.bounced_at IS NOT NULL
-    AND es.bounce_type IN ('Permanent', 'Suppressed')
-)
-AND (email IS NOT NULL OR personal_email IS NOT NULL);
-```
+- `supabase/functions/resume-campaign/index.ts` - Adicionar filtro `.or(crm_stage...)` na query de contatos
+- `supabase/functions/send-campaign-emails/index.ts` - Adicionar verificacao de `crm_stage` ao processar contactIds recebidos
 
-### Passo 2 — Registrar atividades de limpeza
+### Impacto
 
-```sql
-INSERT INTO contact_activities (contact_id, activity_type, description, performed_by, metadata)
-SELECT DISTINCT es.contact_id,
-  'bounce_cleanup',
-  'Email limpo devido a bounce permanente na campanha Follow-up 3 Advogados. Contato mantido para prospecao via LinkedIn.',
-  'Sistema',
-  '{"action": "email_cleared", "had_linkedin": true, "campaign": "Follow-up 3 Advogados"}'::jsonb
-FROM email_sends es
-JOIN contacts c ON c.id = es.contact_id
-WHERE es.campaign_id = '83e206de-8946-4a86-b91a-6c312474b5c3'
-  AND es.bounced_at IS NOT NULL
-  AND es.bounce_type IN ('Permanent', 'Suppressed')
-  AND (c.email IS NOT NULL OR c.personal_email IS NOT NULL);
-```
-
-### Resultado esperado
-
-- ~3.172 contatos terao seus emails limpos
-- Todos resetados para "Novo Lead" no CRM
-- Historico de limpeza registrado na timeline de cada contato
-- Nenhum contato sera deletado (todos possuem LinkedIn)
+- Nenhuma campanha futura enviara emails para contatos em estagios avancados do CRM
+- A correcao atua tanto no disparo inicial quanto na retomada (resume)
+- Contatos movidos manualmente para estagios avancados ficam protegidos contra disparos automaticos
