@@ -13,6 +13,7 @@ const corsHeaders = {
 const BATCH_SIZE = 500; // Contacts per batch
 const SUB_BATCH_SIZE = 50; // For fetching contact details
 const RESEND_BATCH_SIZE = 100; // For Resend API
+const SENDABLE_STAGES = ["Novo Lead", "Email Enviado"];
 const MAX_RETRIES = 3; // Max retries for network errors
 const RETRY_DELAY_MS = 1000; // Initial delay for exponential backoff
 const DELAY_BETWEEN_BATCHES_MS = 100;
@@ -171,6 +172,7 @@ async function processResumeCampaign(params: ResumeRequest) {
           .select("id")
           .eq("base_id", baseId)
           .or("email.not.is.null,personal_email.not.is.null")
+          .or(`crm_stage.is.null,crm_stage.eq.,crm_stage.in.(${SENDABLE_STAGES.join(",")})`)
           .order("created_at", { ascending: true })
           .range(offset, offset + BATCH_SIZE * 2 - 1);
 

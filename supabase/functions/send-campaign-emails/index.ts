@@ -30,6 +30,8 @@ function getResendClient(fromEmail: string): Resend {
   return new Resend(apiKey);
 }
 
+const SENDABLE_STAGES = ["Novo Lead", "Email Enviado"];
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -76,6 +78,7 @@ interface Contact {
   job_title: string | null;
   city: string | null;
   industry: string | null;
+  crm_stage?: string | null;
 }
 
 interface Template {
@@ -651,6 +654,47 @@ serve(async (req: Request): Promise<Response> => {
       
       console.log(`[ResumePending] Processing ${pendingRecords.length} pending records`);
       
+      // === CRM STAGE FILTER: Skip contacts in advanced stages ===
+      if (pendingRecords.length > 0) {
+        const contactIdsToCheck = [...new Set(pendingRecords.map((r: any) => r.contact_id))];
+        const advancedStageContactIds = new Set<string>();
+        
+        for (let i = 0; i < contactIdsToCheck.length; i += 100) {
+          const batch = contactIdsToCheck.slice(i, i + 100);
+          const { data: contactStages } = await supabase
+            .from("contacts")
+            .select("id, crm_stage")
+            .in("id", batch);
+          
+          if (contactStages) {
+            for (const c of contactStages) {
+              const stage = c.crm_stage || "";
+              if (stage !== "" && !SENDABLE_STAGES.includes(stage)) {
+                advancedStageContactIds.add(c.id);
+              }
+            }
+          }
+        }
+        
+        if (advancedStageContactIds.size > 0) {
+          console.log(`[ResumePending] Filtering out ${advancedStageContactIds.size} contacts in advanced CRM stages`);
+          
+          // Mark those pending records as skipped
+          const toSkipByStage = pendingRecords.filter((r: any) => advancedStageContactIds.has(r.contact_id));
+          for (let i = 0; i < toSkipByStage.length; i += 100) {
+            const batch = toSkipByStage.slice(i, i + 100);
+            const ids = batch.map((r: any) => r.id);
+            await supabase
+              .from("email_sends")
+              .update({ status: "skipped", error_message: "Contato em estágio CRM avançado" })
+              .in("id", ids);
+          }
+          
+          pendingRecords = pendingRecords.filter((r: any) => !advancedStageContactIds.has(r.contact_id));
+          console.log(`[ResumePending] ${pendingRecords.length} records remaining after CRM filter`);
+        }
+      }
+      
       if (pendingRecords.length === 0) {
         return new Response(
           JSON.stringify({ success: true, sent: 0, failed: 0, skipped: 0, total: 0 }),
@@ -946,7 +990,7 @@ serve(async (req: Request): Promise<Response> => {
         while (fetchRetries < MAX_RETRIES && !batchContacts) {
           const { data, error: batchError } = await supabase
             .from("contacts")
-            .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+            .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry, crm_stage")
             .in("id", batchIds);
           
           if (batchError) {
@@ -973,10 +1017,22 @@ serve(async (req: Request): Promise<Response> => {
         throw new Error("Nenhum contato encontrado");
       }
 
-      console.log(`[BatchMode] Total fetched: ${contacts.length} contacts for batch`);
+      // Filter out contacts in advanced CRM stages
+      const stageFilteredContacts = contacts.filter((c: Contact) => {
+        const stage = c.crm_stage || "";
+        return stage === "" || SENDABLE_STAGES.includes(stage);
+      });
+      
+      console.log(`[BatchMode] CRM stage filter: ${contacts.length} -> ${stageFilteredContacts.length} contacts`);
+      
+      if (stageFilteredContacts.length === 0) {
+        throw new Error("Nenhum contato em estágio permitido para envio");
+      }
+
+      console.log(`[BatchMode] Total fetched: ${stageFilteredContacts.length} contacts for batch`);
 
       // Filter contacts based on email type preference
-      const contactsWithEmail = contacts.filter((c: Contact) => {
+      const contactsWithEmail = stageFilteredContacts.filter((c: Contact) => {
         if (emailType === "personal") return c.personal_email;
         if (emailType === "corporate") return c.email;
         return c.email || c.personal_email;
@@ -1036,8 +1092,9 @@ serve(async (req: Request): Promise<Response> => {
       while (fetchRetries < MAX_RETRIES && batch === null) {
         let query = supabase
           .from("contacts")
-          .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry")
+          .select("id, first_name, last_name, full_name, email, personal_email, company_name, job_title, city, industry, crm_stage")
           .eq("base_id", baseId)
+          .or(`crm_stage.is.null,crm_stage.eq.,crm_stage.in.(${SENDABLE_STAGES.join(",")})`)
           .range(offset, offset + pageSize - 1);
 
         if (contactIds && contactIds.length > 0) {
