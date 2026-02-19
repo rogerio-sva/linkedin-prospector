@@ -40,7 +40,11 @@ export const useTags = () => {
       let query = supabase.from("contact_tags").select("*");
       
       if (contactIds && contactIds.length > 0) {
-        query = query.in("contact_id", contactIds);
+        // Filter out non-UUID IDs (e.g. temporary "lead-xxx" IDs from search results)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        const validIds = contactIds.filter(id => uuidRegex.test(id));
+        if (validIds.length === 0) return;
+        query = query.in("contact_id", validIds);
       }
 
       const { data, error } = await query;
