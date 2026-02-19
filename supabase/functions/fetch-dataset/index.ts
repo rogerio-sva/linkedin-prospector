@@ -225,7 +225,17 @@ serve(async (req) => {
     const items: ApifyDatasetItem[] = await datasetResponse.json();
     console.log(`Fetched ${items.length} items from dataset`);
 
-    const contacts = items.map((item, index) => ({
+    // Filter out empty/invalid contacts (no name AND no email AND no linkedin)
+    const validItems = items.filter(item => {
+      const hasName = !!(item.full_name || item.first_name || item.last_name);
+      const hasEmail = !!(item.email || item.personal_email);
+      const hasLinkedin = !!item.linkedin;
+      return hasName || hasEmail || hasLinkedin;
+    });
+
+    console.log(`Valid contacts after filtering: ${validItems.length} of ${items.length}`);
+
+    const contacts = validItems.map((item, index) => ({
       id: `lead-${Date.now()}-${index}`,
       firstName: item.first_name || '',
       lastName: item.last_name || '',
