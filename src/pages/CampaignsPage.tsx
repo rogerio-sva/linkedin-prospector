@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/comp
 import { CampaignMetricsPanel } from "@/components/CampaignMetricsPanel";
 import { GlobalCleanupStatus } from "@/components/GlobalCleanupStatus";
 import { BounceCleanupPanel } from "@/components/BounceCleanupPanel";
+import { ExportSuppressedEmails } from "@/components/ExportSuppressedEmails";
 import { cn } from "@/lib/utils";
 
 const CampaignsPage = () => {
@@ -313,7 +314,10 @@ const CampaignsPage = () => {
 
         {/* Bounce Cleanup Panel */}
         <div className="mb-6 space-y-4">
-          <BounceCleanupPanel />
+          <div className="flex items-center justify-between">
+            <BounceCleanupPanel />
+            <ExportSuppressedEmails />
+          </div>
           <GlobalCleanupStatus />
         </div>
 
