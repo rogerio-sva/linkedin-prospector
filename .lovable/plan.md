@@ -1,38 +1,35 @@
 
 
-# Criar Template e Enviar Teste
+# Criar Template para Gerentes de Frota
 
-## 1. Inserir template no banco
+## Template proposto
 
-Inserir na tabela `email_templates`:
-
-- **Nome:** Gestores Sinistro - Pergunta Consultiva
-- **Assunto:** `o que fazem quando o laudo volta fraco, {{firstName}}?`
+- **Nome:** Gerentes de Frota - Pergunta Consultiva
+- **Assunto:** `como vocês lidam com sinistros de frota, {{firstName}}?`
 - **Corpo:**
 ```text
 Oi {{firstName}},
 
-Me tira uma dúvida: quando vocês recebem um laudo técnico de sinistro e ele volta inconclusivo ou mal fundamentado, qual o impacto real na operação? Vocês conseguem resolver internamente ou precisa refazer tudo?
+Me tira uma dúvida: quando acontece um sinistro na frota de vocês — colisão, roubo recuperado, dano por terceiro — como funciona o processo de perícia? Vocês dependem só do laudo da seguradora ou contratam assistência técnica própria?
 
-Pergunto porque a gente atende várias seguradoras e reguladoras, e o que mais ouvimos é que laudo fraco gera retrabalho, atrasa a regulação e às vezes até compromete a decisão de indenização.
+Pergunto porque a gente atende várias empresas com frota e o que mais ouvimos é que o laudo da seguradora nem sempre reflete o prejuízo real, e a empresa acaba aceitando uma indenização abaixo do que deveria.
 
-Nosso trabalho é justamente entregar laudos que não voltam: metodologia rastreável, conclusão objetiva e fundamentação técnica que sustenta a decisão.
+Nosso trabalho é justamente fazer a perícia do lado da empresa: avaliar o dano com metodologia própria, fundamentar tecnicamente e garantir que a indenização seja justa.
 
-Se quiser, posso te enviar um modelo de laudo nosso pra você comparar com o que recebem hoje. Sem compromisso nenhum — é só pra você avaliar o padrão.
+Se quiser, posso te enviar um caso real nosso de perícia em frota pra você ver como funciona. Sem compromisso.
 
 Abraço,
 Thiago Vieira
 Fato Perícias
-(21) 3411-8738 | (21) 97110-3042
 ```
 - **Variáveis:** `["firstName"]`
 
-## 2. Enviar teste
+## Ações
 
-Disparar via edge function `send-campaign-emails` um e-mail de teste para `rogerio.sva@gmail.com` com `firstName: "Rogério"`, usando `fromEmail: contato@fatopericias.com.br` e `fromName: Thiago Vieira | Fato Perícias`.
+1. Inserir o template na tabela `email_templates` via ferramenta de inserção de dados
+2. Enviar e-mail de teste para `rogerio.sva@gmail.com` com `firstName: "Rogério"`, remetente `contato@fatopericias.com.br` / `Thiago Vieira | Fato Perícias`, sem telefones na assinatura
 
 ## Detalhes técnicos
-- INSERT via migration tool na tabela `email_templates`
-- Chamada à edge function `send-campaign-emails` com payload de teste (testContact + emailFormat: text)
+- INSERT na tabela `email_templates` (ferramenta de dados, não migration)
+- Chamada à edge function `send-campaign-emails` com payload de teste (testRecipient/testSubject/testBody)
 - Nenhuma alteração de código
-
