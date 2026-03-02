@@ -1,35 +1,38 @@
 
 
-# Criar Template "Follow-up Advogados - Consultivo + LinkedIn"
+# Criar Template e Enviar Teste
 
-## Objetivo
-Inserir o template de follow-up na tabela `email_templates` com a copy original aprovada, agora com acentuação correta.
+## 1. Inserir template no banco
 
-## Copy final do template
+Inserir na tabela `email_templates`:
 
-**Nome:** Follow-up Advogados - Consultivo + LinkedIn
-
-**Assunto:** `uma pergunta rápida, {{firstName}}`
-
-**Corpo:**
+- **Nome:** Gestores Sinistro - Pergunta Consultiva
+- **Assunto:** `o que fazem quando o laudo volta fraco, {{firstName}}?`
+- **Corpo:**
 ```text
 Oi {{firstName}},
 
-Uma dúvida sincera: nas ações que envolvem perícia técnica, você costuma indicar assistente técnico ou deixa só com o perito do juízo?
+Me tira uma dúvida: quando vocês recebem um laudo técnico de sinistro e ele volta inconclusivo ou mal fundamentado, qual o impacto real na operação? Vocês conseguem resolver internamente ou precisa refazer tudo?
 
-Pergunto porque muitos advogados que a gente atende descobriram que ter um assistente técnico bem preparado muda completamente o rumo da prova. E, em alguns casos, o parecer do assistente acaba sendo mais decisivo que o laudo do perito judicial.
+Pergunto porque a gente atende várias seguradoras e reguladoras, e o que mais ouvimos é que laudo fraco gera retrabalho, atrasa a regulação e às vezes até compromete a decisão de indenização.
 
-Se quiser trocar uma ideia sobre isso, estou à disposição. Sem compromisso.
+Nosso trabalho é justamente entregar laudos que não voltam: metodologia rastreável, conclusão objetiva e fundamentação técnica que sustenta a decisão.
 
-Ah, encontrei seu contato pelo LinkedIn e achei que podia fazer sentido pra sua atuação.
+Se quiser, posso te enviar um modelo de laudo nosso pra você comparar com o que recebem hoje. Sem compromisso nenhum — é só pra você avaliar o padrão.
 
 Abraço,
 Thiago Vieira
 Fato Perícias
 (21) 3411-8738 | (21) 97110-3042
 ```
+- **Variáveis:** `["firstName"]`
 
-## Implementação
-- Um `INSERT` na tabela `email_templates` com nome, assunto, corpo (todos acentuados corretamente) e variáveis `["firstName"]`
-- Nenhuma alteração de código necessária
+## 2. Enviar teste
+
+Disparar via edge function `send-campaign-emails` um e-mail de teste para `rogerio.sva@gmail.com` com `firstName: "Rogério"`, usando `fromEmail: contato@fatopericias.com.br` e `fromName: Thiago Vieira | Fato Perícias`.
+
+## Detalhes técnicos
+- INSERT via migration tool na tabela `email_templates`
+- Chamada à edge function `send-campaign-emails` com payload de teste (testContact + emailFormat: text)
+- Nenhuma alteração de código
 
