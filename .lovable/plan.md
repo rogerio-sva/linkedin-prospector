@@ -1,30 +1,35 @@
 
 
-# Exportar Lista de E-mails Suprimidos e Bounced
+# Criar Template "Follow-up Advogados - Consultivo + LinkedIn"
 
 ## Objetivo
-Adicionar um botao na interface para baixar um arquivo CSV/XLSX com todos os e-mails da tabela `suppressed_emails`, permitindo usar essa lista em outras aplicacoes para identificar e-mails invalidos.
+Inserir o template de follow-up na tabela `email_templates` com a copy original aprovada, agora com acentuação correta.
 
-## O que sera exportado
-- Email
-- Motivo (reason)
-- Tipo de bounce (bounce_type)
-- Erro original (original_error)
-- Data de criacao (created_at)
+## Copy final do template
 
-## Implementacao
+**Nome:** Follow-up Advogados - Consultivo + LinkedIn
 
-### 1. Criar componente ExportSuppressedEmails
-- Botao na pagina de Campanhas (CampaignsPage), proximo ao painel de bounce cleanup
-- Ao clicar, busca todos os registros da tabela `suppressed_emails`
-- Gera arquivo XLSX usando a biblioteca `xlsx` (ja instalada no projeto)
-- Download automatico no navegador
+**Assunto:** `uma pergunta rápida, {{firstName}}`
 
-### 2. Detalhes tecnicos
-- Consulta paginada a `suppressed_emails` para contornar o limite de 1000 registros por query
-- Reutiliza o padrao de exportacao ja existente em `src/lib/exportUtils.ts`
-- Opcao de exportar como XLSX (compativel com Excel e facil de importar em outras ferramentas)
+**Corpo:**
+```text
+Oi {{firstName}},
 
-### 3. Localizacao na interface
-- Botao "Exportar Suprimidos" na pagina de Campanhas, junto aos controles de bounce cleanup existentes
+Uma dúvida sincera: nas ações que envolvem perícia técnica, você costuma indicar assistente técnico ou deixa só com o perito do juízo?
+
+Pergunto porque muitos advogados que a gente atende descobriram que ter um assistente técnico bem preparado muda completamente o rumo da prova. E, em alguns casos, o parecer do assistente acaba sendo mais decisivo que o laudo do perito judicial.
+
+Se quiser trocar uma ideia sobre isso, estou à disposição. Sem compromisso.
+
+Ah, encontrei seu contato pelo LinkedIn e achei que podia fazer sentido pra sua atuação.
+
+Abraço,
+Thiago Vieira
+Fato Perícias
+(21) 3411-8738 | (21) 97110-3042
+```
+
+## Implementação
+- Um `INSERT` na tabela `email_templates` com nome, assunto, corpo (todos acentuados corretamente) e variáveis `["firstName"]`
+- Nenhuma alteração de código necessária
 
