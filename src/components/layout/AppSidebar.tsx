@@ -1,4 +1,4 @@
-import { Search, Database, FileText, Send, Kanban, BarChart3 } from "lucide-react";
+import { Search, Database, FileText, Send, Kanban, BarChart3, HardDriveDownload } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import {
   Sidebar,
