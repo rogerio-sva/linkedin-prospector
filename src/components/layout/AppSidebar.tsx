@@ -45,6 +45,11 @@ const menuItems = [
     url: "/relatorios",
     icon: BarChart3,
   },
+  {
+    title: "Exportar Dados",
+    url: "/export",
+    icon: HardDriveDownload,
+  },
 ];
 
 export function AppSidebar() {
