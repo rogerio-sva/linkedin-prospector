@@ -10,6 +10,7 @@ import TemplatesPage from "./pages/TemplatesPage";
 import CampaignsPage from "./pages/CampaignsPage";
 import CRMPage from "./pages/CRMPage";
 import ReportsPage from "./pages/ReportsPage";
+import ExportAllDataPage from "./pages/ExportAllDataPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
