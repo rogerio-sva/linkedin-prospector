@@ -10,6 +10,7 @@ import TemplatesPage from "./pages/TemplatesPage";
 import CampaignsPage from "./pages/CampaignsPage";
 import CRMPage from "./pages/CRMPage";
 import ReportsPage from "./pages/ReportsPage";
+import ExportAllDataPage from "./pages/ExportAllDataPage";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -28,6 +29,7 @@ const App = () => (
             <Route path="/templates" element={<TemplatesPage />} />
             <Route path="/campanhas" element={<CampaignsPage />} />
             <Route path="/relatorios" element={<ReportsPage />} />
+            <Route path="/export" element={<ExportAllDataPage />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

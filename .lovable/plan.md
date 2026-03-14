@@ -1,38 +1,35 @@
 
 
-# Exportar Todos os Dados do Projeto
+# Criar Template para Gerentes de Frota
 
-## O que será exportado
+## Template proposto
 
-Todas as 14 tabelas do banco de dados:
+- **Nome:** Gerentes de Frota - Pergunta Consultiva
+- **Assunto:** `como vocês lidam com sinistros de frota, {{firstName}}?`
+- **Corpo:**
+```text
+Oi {{firstName}},
 
-| Tabela | Descrição |
-|--------|-----------|
-| contacts | Todos os leads/contatos |
-| bases | Bases de contatos |
-| contact_tags | Relação contato-tag |
-| tags | Tags cadastradas |
-| email_templates | Templates de e-mail |
-| email_campaigns | Campanhas |
-| email_sends | Envios individuais |
-| email_validations | Validações de e-mail |
-| suppressed_emails | Lista de supressão |
-| contact_activities | Atividades CRM |
-| crm_stages | Estágios do funil |
-| team_members | Membros da equipe |
-| cleanup_jobs | Jobs de limpeza |
-| search_runs | Buscas realizadas |
+Me tira uma dúvida: quando acontece um sinistro na frota de vocês — colisão, roubo recuperado, dano por terceiro — como funciona o processo de perícia? Vocês dependem só do laudo da seguradora ou contratam assistência técnica própria?
 
-## Abordagem
+Pergunto porque a gente atende várias empresas com frota e o que mais ouvimos é que o laudo da seguradora nem sempre reflete o prejuízo real, e a empresa acaba aceitando uma indenização abaixo do que deveria.
 
-Criar uma página `/export` com um botão que busca todas as tabelas via SDK e gera um arquivo JSON único com todos os dados, além de opção de baixar cada tabela individualmente em CSV.
+Nosso trabalho é justamente fazer a perícia do lado da empresa: avaliar o dano com metodologia própria, fundamentar tecnicamente e garantir que a indenização seja justa.
 
-**Atenção:** tabelas grandes (contacts, email_sends, suppressed_emails) podem ter mais de 1000 registros. O código fará paginação automática para garantir que nenhum dado fique de fora.
+Se quiser, posso te enviar um caso real nosso de perícia em frota pra você ver como funciona. Sem compromisso.
 
-## Implementação
+Abraço,
+Thiago Vieira
+Fato Perícias
+```
+- **Variáveis:** `["firstName"]`
 
-1. Criar página `ExportAllDataPage.tsx` com botões de exportação
-2. Criar utilitário de paginação para buscar todos os registros além do limite de 1000
-3. Adicionar rota `/export` no App.tsx
-4. Gerar JSON completo ou CSVs individuais por tabela
+## Ações
 
+1. Inserir o template na tabela `email_templates` via ferramenta de inserção de dados
+2. Enviar e-mail de teste para `rogerio.sva@gmail.com` com `firstName: "Rogério"`, remetente `contato@fatopericias.com.br` / `Thiago Vieira | Fato Perícias`, sem telefones na assinatura
+
+## Detalhes técnicos
+- INSERT na tabela `email_templates` (ferramenta de dados, não migration)
+- Chamada à edge function `send-campaign-emails` com payload de teste (testRecipient/testSubject/testBody)
+- Nenhuma alteração de código

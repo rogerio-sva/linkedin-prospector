@@ -77,7 +77,7 @@ const BasesPage = () => {
   const [isLoadingContacts, setIsLoadingContacts] = useState(false);
   
   // Debounce timer ref
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const [createBaseDialogOpen, setCreateBaseDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
